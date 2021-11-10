@@ -32,14 +32,14 @@ jobs:
         run: cd main/ && GOOS=linux GOARCH=amd64 go build -o ~/main/bin/amd64-linux-openshiftplugin-${{ github.event.inputs.version }} .
 
       - name: Build openshift plugin darwin amd64
-          env:
-            GOPROXY: "https://proxy.golang.org"
-          run: cd main/ && GOOS=linux GOARCH=amd64 go build -o ~/main/bin/amd64-linux-openshiftplugin-${{ github.event.inputs.version }} .
+        env:
+          GOPROXY: "https://proxy.golang.org"
+        run: cd main/ && GOOS=darwin GOARCH=amd64 go build -o ~/main/bin/amd64-darwin-openshiftplugin-${{ github.event.inputs.version }} .
 
       - name: Build openshift plugin darwin arm64
-          env:
-            GOPROXY: "https://proxy.golang.org"
-          run: cd main/ && GOOS=linux GOARCH=amd64 go build -o ~/main/bin/amd64-linux-openshiftplugin-${{ github.event.inputs.version }} .
+        env:
+          GOPROXY: "https://proxy.golang.org"
+        run: cd main/ && GOOS=darwin GOARCH=arm64 go build -o ~/main/bin/arm64-darwin-openshiftplugin-${{ github.event.inputs.version }} .
 
       - name: release
         uses: ncipollo/release-action@v1
@@ -47,3 +47,52 @@ jobs:
           artifacts: "~/main/bin/*"
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.event.inputs.version }}
+
+      - name: Checkout crane-plugins
+        uses: actions/checkout@v2
+        with:
+          repository: ${{ github.repository_owner }}/crane-plugins
+          token: ${{ secrets.PLUGIN_RELEASE }}
+
+      - name: Updating index file and adding manifest
+        run: |
+          cat << EOF >> index.yml
+          OpenshiftPlugin-${{ github.event.inputs.version }}: https://github.com/${{ github.repository_owner }}/crane-plugins/raw/main/plugins/Openshift/OpenshiftPlugin-${{ github.event.inputs.version }}.yml
+          EOF
+          mkdir -p plugins/Openshift
+          cat << EOF >> plugins/Openshift/OpenshiftPlugin-${{ github.event.inputs.version }}.yml
+          name: OpenshiftPlugin
+          shortDescription: OpenshiftPlugin
+          description: this is OpenshiftPlugin
+          version: ${{ github.event.inputs.version }}
+          binaries:
+            - os: linux
+              arch: amd64
+              uri: https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/amd64-linux-openshiftplugin-${{ github.event.inputs.version }}
+            - os: darwin
+              arch: amd64
+              uri: https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/amd64-darwin-openshiftplugin-${{ github.event.inputs.version }}
+            - os: darwin
+              arch: arm64
+              uri: https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/arm64-darwin-openshiftplugin-${{ github.event.inputs.version }}
+          optionalFields:
+            - flagName: "strip-default-pull-secrets"
+              help:     "Whether to strip Pod and BuildConfig default pull secrets (beginning with builder/default/deployer-dockercfg-) that aren't replaced by the map param pull-secret-replacement"
+              example:  "true"
+            - flagName: "pull-secret-replacement"
+              help:     "Map of pull secrets to replace in Pods and BuildConfigs while transforming in format secret1=destsecret1,secret2=destsecret2[...]"
+              example:  "default-dockercfg-h4n7g=default-dockercfg-12345,builder-dockercfg-abcde=builder-dockercfg-12345"
+            - flagName: "registry-replacement"
+              help:     "Map of image registry paths to swap on transform, in the format original-registry1=target-registry1,original-registry2=target-registry2..."
+              example:  "docker-registry.default.svc:5000=image-registry.openshift-image-registry.svc:5000,docker.io/foo=quay.io/bar"
+          EOF
+
+      - name: Create Pull Request against crane-plugins
+        uses: peter-evans/create-pull-request@v3
+        with:
+          token: ${{ secrets.PLUGIN_RELEASE }}
+          commit-message: Updating index and adding manifest from openshift plugin release
+          title: Adding openshift plugin from release ${{ github.event.inputs.version }}
+          body: Update index and add manifest to include version ${{ github.event.inputs.version }} of openshift plugin
+          branch: OpenshiftPlugin
+          base: main
