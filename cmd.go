@@ -11,6 +11,8 @@ import (
 
 var logger logrus.FieldLogger
 
+const Version = "v0.0.1"
+
 const (
 	// flags
 	StripDefaultPullSecrets = "strip-default-pull-secrets"
@@ -38,7 +40,7 @@ func main() {
 			Example:  "docker-registry.default.svc:5000=image-registry.openshift-image-registry.svc:5000,docker.io/foo=quay.io/bar",
 		},
 	}
-	cli.RunAndExit(cli.NewCustomPlugin("OpenshiftPlugin", "v1", fields, Run))
+	cli.RunAndExit(cli.NewCustomPlugin("OpenshiftPlugin", Version, fields, Run))
 }
 
 type openshiftOptionalFields struct {
@@ -95,7 +97,7 @@ func Run(request transform.PluginRequest) (transform.PluginResponse, error) {
 		return transform.PluginResponse{}, err
 	}
 	return transform.PluginResponse{
-		Version:    "v1",
+		Version:    string(transform.V1),
 		IsWhiteOut: whiteOut,
 		Patches:    patch,
 	}, nil
