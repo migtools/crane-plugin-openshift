@@ -57,13 +57,13 @@ jobs:
       - name: Updating index file and adding manifest
         run: |
           cat << EOF >> index.yml
-          OpenshiftPlugin-${{ github.event.inputs.version }}: https://github.com/${{ github.repository_owner }}/crane-plugins/raw/main/plugins/Openshift/OpenshiftPlugin-${{ github.event.inputs.version }}.yml
+          OpenShiftPlugin-${{ github.event.inputs.version }}: https://github.com/${{ github.repository_owner }}/crane-plugins/raw/main/plugins/Openshift/OpenShiftPlugin-${{ github.event.inputs.version }}.yml
           EOF
           mkdir -p plugins/Openshift
-          cat << EOF >> plugins/Openshift/OpenshiftPlugin-${{ github.event.inputs.version }}.yml
-          name: OpenshiftPlugin
-          shortDescription: OpenshiftPlugin
-          description: this is OpenshiftPlugin
+          cat << EOF >> plugins/Openshift/OpenShiftPlugin-${{ github.event.inputs.version }}.yml
+          name: OpenShiftPlugin
+          shortDescription: OpenShiftPlugin
+          description: this is OpenShiftPlugin
           version: ${{ github.event.inputs.version }}
           binaries:
             - os: linux
@@ -94,5 +94,5 @@ jobs:
           commit-message: Updating index and adding manifest from openshift plugin release
           title: Adding openshift plugin from release ${{ github.event.inputs.version }}
           body: Update index and add manifest to include version ${{ github.event.inputs.version }} of openshift plugin
-          branch: OpenshiftPlugin
+          branch: OpenShiftPlugin
           base: main

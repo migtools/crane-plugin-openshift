@@ -40,7 +40,7 @@ func main() {
 			Example:  "docker-registry.default.svc:5000=image-registry.openshift-image-registry.svc:5000,docker.io/foo=quay.io/bar",
 		},
 	}
-	cli.RunAndExit(cli.NewCustomPlugin("OpenshiftPlugin", Version, fields, Run))
+	cli.RunAndExit(cli.NewCustomPlugin("OpenShiftPlugin", Version, fields, Run))
 }
 
 type openshiftOptionalFields struct {
