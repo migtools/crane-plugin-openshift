@@ -92,6 +92,12 @@ func Run(request transform.PluginRequest) (transform.PluginResponse, error) {
 	case "ServiceAccount":
 		logger.Info("found service account, processing")
 		patch, err = UpdateServiceAccount(u)
+	case "ClusterServiceVersion":
+		csvLabels := u.GetLabels()
+		if _, ok := csvLabels["olm.copiedFrom"]; ok {
+			logger.Info("found copied ClusterServiceVersion, adding to whiteout")
+			whiteOut = true
+		}
 	}
 	if err != nil {
 		return transform.PluginResponse{}, err
