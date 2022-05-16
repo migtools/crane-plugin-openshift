@@ -37,7 +37,6 @@ const (
 	buildConfigCustomStrategyFrom       = "/spec/strategy/customStrategy/from/name"
 	buildConfigSourceImagesPullSecret   = "/spec/source/images/%v/pullSecret"
 	buildConfigSourceImagesFrom         = "/spec/source/images/%v/from/name"
-
 )
 
 var defaultPullSecrets = []string{"builder-dockercfg-", "default-dockercfg-", "deployer-dockercfg-"}
@@ -84,7 +83,7 @@ func updateSecretsForSlice(
 	// iterate in reverse order since jsonpatch array element removal shifts
 	// later elements up, which would break later remove patch entries otherwise
 	var priorReplace, priorRemove bool
-	for i := len(pullSecrets)-1; i >= 0; i-- {
+	for i := len(pullSecrets) - 1; i >= 0; i-- {
 		newSecret, ok := fields.PullSecretReplacement[pullSecrets[i].Name]
 		// replacement found
 		if ok {
@@ -108,7 +107,6 @@ func updateSecretsForSlice(
 	}
 	replaceJSON = fmt.Sprintf("%v]", replaceJSON)
 	removeJSON = fmt.Sprintf("%v]", removeJSON)
-
 
 	if priorReplace {
 		replacePatch, err = jsonpatch.DecodePatch([]byte(replaceJSON))
@@ -134,7 +132,7 @@ func updateSecret(
 	patch := jsonpatch.Patch{}
 	var patchJSON string
 
-	if pullSecret == nil || len(pullSecret.Name) == 0  {
+	if pullSecret == nil || len(pullSecret.Name) == 0 {
 		return patch, nil
 	}
 
@@ -145,7 +143,6 @@ func updateSecret(
 	} else if fields.StripDefaultPullSecrets && isDefault(pullSecret.Name) {
 		patchJSON = fmt.Sprintf(removeSecretOp, secretPath)
 	}
-
 
 	if len(patchJSON) > 0 {
 		patch, err = jsonpatch.DecodePatch([]byte(patchJSON))
@@ -172,7 +169,7 @@ func UpdateServiceAccount(u unstructured.Unstructured) (jsonpatch.Patch, error) 
 	pullSecretsPatch := jsonpatch.Patch{}
 	pullSecretsJSON := `[`
 	var priorPullSecret bool
-	for i := len(pullSecrets)-1; i >= 0; i-- {
+	for i := len(pullSecrets) - 1; i >= 0; i-- {
 		if strings.HasPrefix(pullSecrets[i].Name, check) {
 			pullSecretsJSON = fmt.Sprintf(
 				serviceAccountRemoveImagePullSecret,
@@ -196,7 +193,7 @@ func UpdateServiceAccount(u unstructured.Unstructured) (jsonpatch.Patch, error) 
 	secretsPatch := jsonpatch.Patch{}
 	secretsJSON := `[`
 	var priorSecret bool
-	for i := len(secrets)-1; i >= 0; i-- {
+	for i := len(secrets) - 1; i >= 0; i-- {
 		if strings.HasPrefix(secrets[i].Name, check) {
 			secretsJSON = fmt.Sprintf(
 				serviceAccountRemoveSecret,
