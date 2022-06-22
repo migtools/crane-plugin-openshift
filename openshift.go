@@ -286,7 +286,7 @@ func UpdateBuildConfig(u unstructured.Unstructured, fields openshiftOptionalFiel
 		if err != nil {
 			return nil, err
 		}
-		if buildConfig.Spec.Strategy.DockerStrategy != nil {
+		if buildConfig.Spec.Strategy.DockerStrategy != nil && buildConfig.Spec.Strategy.DockerStrategy.From != nil {
 			jsonPatch = append(jsonPatch, patch...)
 			patch, err := updateBuildConfigImageReference(*buildConfig.Spec.Strategy.DockerStrategy.From, buildConfigDockerStrategyFrom, fields)
 			if err != nil {
