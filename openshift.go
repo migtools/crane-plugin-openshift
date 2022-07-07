@@ -7,6 +7,7 @@ import (
 
 	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/konveyor/crane-lib/transform/util"
+	rbacv1 "github.com/openshift/api/authorization/v1"
 	buildv1API "github.com/openshift/api/build/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -24,7 +25,7 @@ const (
 	replaceSecretOp = `[
 { "op": "replace", "path": "%v", "value": "%v"}
 ]`
-	removeSecretOp = `[
+	opRemove = `[
 { "op": "remove", "path": "%v"}
 ]`
 	buildConfigOutputPushSecret         = "/spec/output/pushSecret"
@@ -37,6 +38,7 @@ const (
 	buildConfigCustomStrategyFrom       = "/spec/strategy/customStrategy/from/name"
 	buildConfigSourceImagesPullSecret   = "/spec/source/images/%v/pullSecret"
 	buildConfigSourceImagesFrom         = "/spec/source/images/%v/from/name"
+	roleBindingSubject                  = "/subjects/%d/namespace"
 )
 
 var defaultPullSecrets = []string{"builder-dockercfg-", "default-dockercfg-", "deployer-dockercfg-"}
@@ -123,6 +125,32 @@ func updateSecretsForSlice(
 	return append(replacePatch, removePatch...), nil
 }
 
+func UpdateRoleBinding(u unstructured.Unstructured) (jsonpatch.Patch, error) {
+	jsonPatch := jsonpatch.Patch{}
+
+	js, err := u.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	rb := &rbacv1.RoleBinding{}
+
+	err = json.Unmarshal(js, rb)
+	if err != nil {
+		return nil, err
+	}
+	for i, subj := range rb.Subjects {
+		if subj.Kind == "ServiceAccount" && subj.Namespace == rb.Namespace {
+			subjPath := fmt.Sprintf(roleBindingSubject, i)
+			patch, err := jsonpatch.DecodePatch([]byte(fmt.Sprintf(opRemove, subjPath)))
+			if err != nil {
+				return nil, err
+			}
+			jsonPatch = append(jsonPatch, patch...)
+		}
+	}
+	return jsonPatch, nil
+}
+
 func updateSecret(
 	pullSecret *v1.LocalObjectReference,
 	secretPath string,
@@ -141,7 +169,7 @@ func updateSecret(
 	if ok {
 		patchJSON = fmt.Sprintf(replaceSecretOp, secretPath+"/name", newSecret)
 	} else if fields.StripDefaultPullSecrets && isDefault(pullSecret.Name) {
-		patchJSON = fmt.Sprintf(removeSecretOp, secretPath)
+		patchJSON = fmt.Sprintf(opRemove, secretPath)
 	}
 
 	if len(patchJSON) > 0 {
