@@ -7,9 +7,13 @@ import (
 	"github.com/konveyor/crane-lib/transform"
 	"github.com/konveyor/crane-lib/transform/cli"
 	"github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-var logger logrus.FieldLogger
+var (
+	logger        logrus.FieldLogger
+	roleBindingGK = schema.GroupKind{Group: "authorization.openshift.io", Kind: "RoleBinding"}
+)
 
 const Version = "v0.0.3"
 
@@ -133,11 +137,16 @@ func Run(request transform.PluginRequest) (transform.PluginResponse, error) {
 			}
 		}
 	case "RoleBinding":
-		if inputFields.StripDefaultRBAC && (u.GetName() == "admin" ||
-			u.GetName() == "system:deployers" ||
-			u.GetName() == "system:image-builders" ||
-			u.GetName() == "system:image-pullers") {
-			whiteOut = true
+		logger.Info("found role binding, processing")
+		if roleBindingGK == u.GetObjectKind().GroupVersionKind().GroupKind() {
+			if inputFields.StripDefaultRBAC && (u.GetName() == "admin" ||
+				u.GetName() == "system:deployers" ||
+				u.GetName() == "system:image-builders" ||
+				u.GetName() == "system:image-pullers") {
+				whiteOut = true
+			} else {
+				patch, err = UpdateRoleBinding(u)
+			}
 		}
 	case "ConfigMap":
 		if inputFields.StripDefaultCABundle && u.GetName() == "openshift-service-ca.crt" {
