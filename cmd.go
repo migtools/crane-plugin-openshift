@@ -6,6 +6,7 @@ import (
 	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/konveyor/crane-lib/transform"
 	"github.com/konveyor/crane-lib/transform/cli"
+	"github.com/konveyor/crane-lib/transform/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -22,6 +23,7 @@ const (
 	StripDefaultCABundleFlag    = "strip-default-cabundle"
 	StripDefaultPullSecretsFlag = "strip-default-pull-secrets"
 	PullSecretReplacementFlag   = "pull-secret-replacement"
+	PVCRenameMap                = "pvc-rename-map"
 	RegistryReplacementflag     = "registry-replacement"
 )
 
@@ -54,6 +56,11 @@ func main() {
 			Help:     "Map of image registry paths to swap on transform, in the format original-registry1=target-registry1,original-registry2=target-registry2...",
 			Example:  "docker-registry.default.svc:5000=image-registry.openshift-image-registry.svc:5000,docker.io/foo=quay.io/bar",
 		},
+		{
+			FlagName: PVCRenameMap,
+			Help:     "A comma-separated list of colon separated pvc renames.",
+			Example:  "old-pvc1-name:new-pvc1-name,old-pvc2-name:new-pvc2-name",
+		},
 	}
 	cli.RunAndExit(cli.NewCustomPlugin("OpenShiftPlugin", Version, fields, Run))
 }
@@ -63,6 +70,7 @@ type openshiftOptionalFields struct {
 	StripDefaultCABundle    bool
 	StripDefaultPullSecrets bool
 	PullSecretReplacement   map[string]string
+	PVCRenameMap            map[string]string
 	RegistryReplacement     map[string]string
 }
 
@@ -97,6 +105,13 @@ func getOptionalFields(extras map[string]string) (openshiftOptionalFields, error
 	if len(extras[RegistryReplacementflag]) > 0 {
 		fields.RegistryReplacement = transform.ParseOptionalFieldMapVal(extras[RegistryReplacementflag])
 	}
+	if len(extras[PVCRenameMap]) > 0 {
+		pvcMap, err := util.ProcessPVCMap(extras[PVCRenameMap])
+		if err != nil {
+			return fields, err
+		}
+		fields.PVCRenameMap = pvcMap
+	}
 	return fields, nil
 }
 
@@ -124,6 +139,9 @@ func Run(request transform.PluginRequest) (transform.PluginResponse, error) {
 	case "BuildConfig":
 		logger.Info("found build config, processing")
 		patch, err = UpdateBuildConfig(u, inputFields)
+	case "DeploymentConfig":
+		logger.Info("found deployment config, processing")
+		patch, err = UpdateDeploymentConfig(u, inputFields)
 	case "Pod":
 		logger.Info("found pod, processing update default pull secret")
 		patch, err = UpdateDefaultPullSecrets(u, inputFields)

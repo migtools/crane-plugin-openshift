@@ -7,6 +7,7 @@ import (
 
 	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/konveyor/crane-lib/transform/util"
+	appsv1 "github.com/openshift/api/apps/v1"
 	rbacv1 "github.com/openshift/api/authorization/v1"
 	buildv1API "github.com/openshift/api/build/v1"
 	v1 "k8s.io/api/core/v1"
@@ -352,6 +353,21 @@ func UpdateBuildConfig(u unstructured.Unstructured, fields openshiftOptionalFiel
 		}
 	}
 	return jsonPatch, nil
+}
+
+func UpdateDeploymentConfig(u unstructured.Unstructured, fields openshiftOptionalFields) (jsonpatch.Patch, error) {
+	js, err := u.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	deploymentConfig := &appsv1.DeploymentConfig{}
+	err = json.Unmarshal(js, deploymentConfig)
+
+	patches, err := util.RenamePVCs(deploymentConfig.Spec.Template.Spec.Volumes, fields.PVCRenameMap, util.PVCPathGenericString)
+	if err != nil {
+		return nil, err
+	}
+	return patches, nil
 }
 
 func getPullSecrets(u unstructured.Unstructured) []v1.LocalObjectReference {
