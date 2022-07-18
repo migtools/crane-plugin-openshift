@@ -7,12 +7,11 @@ import (
 	"github.com/konveyor/crane-lib/transform"
 	"github.com/konveyor/crane-lib/transform/cli"
 	"github.com/sirupsen/logrus"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 var (
-	logger        logrus.FieldLogger
-	roleBindingGK = schema.GroupKind{Group: "authorization.openshift.io", Kind: "RoleBinding"}
+	logger             logrus.FieldLogger
+	authorizationGroup = "authorization.openshift.io"
 )
 
 const Version = "v0.0.3"
@@ -110,6 +109,14 @@ func Run(request transform.PluginRequest) (transform.PluginResponse, error) {
 		return transform.PluginResponse{}, err
 	}
 
+	if authorizationGroup == u.GetObjectKind().GroupVersionKind().GroupKind().Group {
+		return transform.PluginResponse{
+			Version:    string(transform.V1),
+			IsWhiteOut: true,
+			Patches:    patch,
+		}, nil
+	}
+
 	switch u.GetKind() {
 	case "Build":
 		logger.Info("found build, adding to whiteout")
@@ -138,15 +145,13 @@ func Run(request transform.PluginRequest) (transform.PluginResponse, error) {
 		}
 	case "RoleBinding":
 		logger.Info("found role binding, processing")
-		if roleBindingGK == u.GetObjectKind().GroupVersionKind().GroupKind() {
-			if inputFields.StripDefaultRBAC && (u.GetName() == "admin" ||
-				u.GetName() == "system:deployers" ||
-				u.GetName() == "system:image-builders" ||
-				u.GetName() == "system:image-pullers") {
-				whiteOut = true
-			} else {
-				patch, err = UpdateRoleBinding(u)
-			}
+		if inputFields.StripDefaultRBAC && (u.GetName() == "admin" ||
+			u.GetName() == "system:deployers" ||
+			u.GetName() == "system:image-builders" ||
+			u.GetName() == "system:image-pullers") {
+			whiteOut = true
+		} else {
+			patch, err = UpdateRoleBinding(u)
 		}
 	case "ConfigMap":
 		if inputFields.StripDefaultCABundle && u.GetName() == "openshift-service-ca.crt" {
