@@ -15,7 +15,7 @@ var (
 	authorizationGroup = "authorization.openshift.io"
 )
 
-const Version = "v0.0.3"
+const Version = "v0.0.4"
 
 const (
 	// flags
