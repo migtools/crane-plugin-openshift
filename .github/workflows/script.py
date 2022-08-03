@@ -64,9 +64,19 @@ if os.path.exists('plugins/OpenShift/index.yaml'):
             },
         ],
         'optionalFields': [
+            {
+                'flagName': "strip-default-rbac",
+                'help':     "Whether to strip default RBAC including builder and deployers serviceAccounts, roleBindings for admin, builders, and deployers (default: true)",
+                'example':  "true",
+        	},
+            {
+                'flagName': "strip-default-cabundle"
+                'help':     "Whether to strip default CA Bundle (default: true)",
+                'example':  "true",
+            },
             {  
                 'flagName': "strip-default-pull-secrets",
-                'help':     "Whether to strip Pod and BuildConfig default pull secrets (beginning with builder/default/deployer-dockercfg-) that aren't replaced by the map param pull-secret-replacement",
+                'help':     "Whether to strip Pod and BuildConfig default pull secrets (beginning with builder/default/deployer-dockercfg-) that aren't replaced by the map param pull-secret-replacement (default: true)",
                 'example':  "true",
             },
             { 
@@ -78,6 +88,11 @@ if os.path.exists('plugins/OpenShift/index.yaml'):
                 'flagName': "registry-replacement",
                 'help':     "Map of image registry paths to swap on transform, in the format original-registry1=target-registry1,original-registry2=target-registry2...",
                 'example':  "docker-registry.default.svc:5000=image-registry.openshift-image-registry.svc:5000,docker.io/foo=quay.io/bar",
+            },
+            {
+                'flagName': "pvc-rename-map",
+                'help':     "A comma-separated list of colon separated pvc renames.",
+                'example':  "old-pvc1-name:new-pvc1-name,old-pvc2-name:new-pvc2-name",
             },
         ]
     }
