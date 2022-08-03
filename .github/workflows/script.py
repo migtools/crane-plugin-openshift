@@ -70,7 +70,7 @@ if os.path.exists('plugins/OpenShift/index.yaml'):
                 'example':  "true",
         	},
             {
-                'flagName': "strip-default-cabundle"
+                'flagName': "strip-default-cabundle",
                 'help':     "Whether to strip default CA Bundle (default: true)",
                 'example':  "true",
             },
