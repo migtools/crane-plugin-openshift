@@ -417,3 +417,88 @@ func getSecretReferencesServiceAccount(u unstructured.Unstructured) []v1.ObjectR
 
 	return sa.Secrets
 }
+
+// stripSecurityContext removes cluster-specific runtime security context values
+// that are injected by the SCC admission controller. This prevents SCC validation
+// failures when migrating between OpenShift clusters with different namespace UID ranges.
+func stripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) {
+	kind := u.GetKind()
+
+	// Only process workload resources
+	if kind != "Pod" && kind != "Deployment" && kind != "StatefulSet" &&
+		kind != "DaemonSet" && kind != "Job" && kind != "CronJob" &&
+		kind != "ReplicaSet" && kind != "ReplicationController" {
+		return jsonpatch.Patch{}, nil
+	}
+
+	// Create a copy to modify
+	modified := u.DeepCopy()
+
+	// Remove pod-level spec.securityContext
+	unstructured.RemoveNestedField(modified.Object, "spec", "securityContext")
+
+	// For workload controllers, remove spec.template.spec.securityContext
+	if kind != "Pod" {
+		if kind == "CronJob" {
+			// CronJob has spec.jobTemplate.spec.template.spec
+			unstructured.RemoveNestedField(modified.Object, "spec", "jobTemplate", "spec", "template", "spec", "securityContext")
+		} else {
+			// Deployment/StatefulSet/DaemonSet/Job/ReplicaSet/ReplicationController have spec.template.spec
+			unstructured.RemoveNestedField(modified.Object, "spec", "template", "spec", "securityContext")
+		}
+	}
+
+	// Helper function to strip container securityContext
+	stripContainerSecurityContext := func(containersPath ...string) {
+		containers, found, _ := unstructured.NestedSlice(modified.Object, containersPath...)
+		if found {
+			for i, c := range containers {
+				if container, ok := c.(map[string]interface{}); ok {
+					delete(container, "securityContext")
+					containers[i] = container
+				}
+			}
+			unstructured.SetNestedSlice(modified.Object, containers, containersPath...)
+		}
+	}
+
+	// Determine base path for containers
+	var basePath []string
+	if kind == "Pod" {
+		basePath = []string{"spec"}
+	} else if kind == "CronJob" {
+		basePath = []string{"spec", "jobTemplate", "spec", "template", "spec"}
+	} else {
+		basePath = []string{"spec", "template", "spec"}
+	}
+
+	// Remove container-level securityContext
+	containersPath := append(basePath, "containers")
+	stripContainerSecurityContext(containersPath...)
+
+	// Remove initContainers securityContext
+	initContainersPath := append(basePath, "initContainers")
+	stripContainerSecurityContext(initContainersPath...)
+
+	// Remove ephemeralContainers securityContext (if present)
+	ephemeralContainersPath := append(basePath, "ephemeralContainers")
+	stripContainerSecurityContext(ephemeralContainersPath...)
+
+	// Generate patch between original and modified
+	originalJSON, err := u.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	modifiedJSON, err := modified.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	patch, err := jsonpatch.CreatePatch(originalJSON, modifiedJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	return patch, nil
+}
