@@ -136,6 +136,12 @@ func Run(request transform.PluginRequest) (transform.PluginResponse, error) {
 	case "Build":
 		logger.Info("found build, adding to whiteout")
 		whiteOut = true
+	case "ImageStreamTag":
+		logger.Info("found ImageStreamTag sub-resource, adding to whiteout")
+		whiteOut = true
+	case "ImageTag":
+		logger.Info("found ImageTag sub-resource, adding to whiteout")
+		whiteOut = true
 	case "BuildConfig":
 		logger.Info("found build config, processing")
 		patch, err = UpdateBuildConfig(u, inputFields)
