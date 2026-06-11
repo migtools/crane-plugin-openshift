@@ -9,7 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const PluginVersion = "v0.0.4"
+const PluginVersion = "v0.1.0"
 
 const (
 	StripDefaultRBACFlag        = "strip-default-rbac"
