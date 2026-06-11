@@ -1,7 +1,7 @@
 package main
 
 import (
-	openshift "crane-plugin-openshift"
+	"github.com/migtools/crane-plugin-openshift/openshift"
 
 	"github.com/konveyor/crane-lib/transform/cli"
 	"github.com/sirupsen/logrus"

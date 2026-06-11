@@ -1,4 +1,4 @@
-module crane-plugin-openshift
+module github.com/migtools/crane-plugin-openshift
 
 go 1.16
 
