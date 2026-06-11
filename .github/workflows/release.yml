@@ -17,11 +17,16 @@ jobs:
 
       - name: Check out source code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Tidy
         env:
           GOPROXY: "https://proxy.golang.org"
         run: go mod tidy && git diff --quiet HEAD
+
+      - name: Ensure artifact directory exists
+        run: mkdir -p bin
 
       - name: Build openshift plugin linux amd64
         env:
