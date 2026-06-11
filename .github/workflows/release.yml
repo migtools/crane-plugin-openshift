@@ -4,71 +4,69 @@ on:
     inputs:
       version:
         description: Bump Version
-        default: v0.0.1
+        default: v0.1.0
         required: true
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Go 1.16
-        uses: actions/setup-go@v2
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.16
+          go-version: "1.25.0"
 
       - name: Check out source code
-        uses: actions/checkout@v2
-        with:
-          path: main
-          ref: ${{ github.event.pull_request.head.sha }}
+        uses: actions/checkout@v4
 
       - name: Tidy
         env:
           GOPROXY: "https://proxy.golang.org"
-        run: cd main && go mod tidy && git diff --quiet HEAD
+        run: go mod tidy && git diff --quiet HEAD
 
       - name: Build openshift plugin linux amd64
         env:
           GOPROXY: "https://proxy.golang.org"
-        run: cd main/ && GOOS=linux GOARCH=amd64 go build -o ~/main/bin/amd64-linux-openshiftplugin-${{ github.event.inputs.version }} .
+        run: GOOS=linux GOARCH=amd64 go build -o bin/amd64-linux-openshiftplugin-${{ github.event.inputs.version }} .
 
       - name: Build openshift plugin darwin amd64
         env:
           GOPROXY: "https://proxy.golang.org"
-        run: cd main/ && GOOS=darwin GOARCH=amd64 go build -o ~/main/bin/amd64-darwin-openshiftplugin-${{ github.event.inputs.version }} .
+        run: GOOS=darwin GOARCH=amd64 go build -o bin/amd64-darwin-openshiftplugin-${{ github.event.inputs.version }} .
 
       - name: Build openshift plugin darwin arm64
         env:
           GOPROXY: "https://proxy.golang.org"
-        run: cd main/ && GOOS=darwin GOARCH=arm64 go build -o ~/main/bin/arm64-darwin-openshiftplugin-${{ github.event.inputs.version }} .
+        run: GOOS=darwin GOARCH=arm64 go build -o bin/arm64-darwin-openshiftplugin-${{ github.event.inputs.version }} .
 
       - name: release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "~/main/bin/*"
+          artifacts: "bin/*"
+          allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.event.inputs.version }}
 
       - name: Checkout crane-plugins
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/crane-plugins
           token: ${{ secrets.PLUGIN_RELEASE }}
           path: crane-plugins
 
       - name: setup python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: "3.12"
 
       - name: Updating index file and adding manifest
         shell: bash
         run: |
           pip install pyyaml
           cd crane-plugins
-          python ~/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/main/.github/workflows/script.py "${{ github.event.inputs.version }}" "${{ github.repository_owner }}" "${{ github.repository }}"
-     
+          python $GITHUB_WORKSPACE/.github/workflows/script.py "${{ github.event.inputs.version }}" "${{ github.repository_owner }}" "${{ github.repository }}"
+
       - name: Create Pull Request against crane-plugins
-        uses: peter-evans/create-pull-request@v3
+        uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.PLUGIN_RELEASE }}
           commit-message: Updating index and adding manifest from openshift plugin release
