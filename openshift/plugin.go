@@ -21,6 +21,7 @@ const (
 )
 
 var authorizationGroup = "authorization.openshift.io"
+var imageGroup = "image.openshift.io"
 
 // OpenShiftTransformPlugin implements transform.Plugin for OpenShift-specific transformations.
 type OpenShiftTransformPlugin struct {

@@ -23,7 +23,7 @@ This plugin provides transformations for OpenShift-specific resources including:
 
 When the plugin detects `ImageStream` resources during migration, it will log warnings like:
 
-```
+```text
 WARNING: ImageStream 'my-namespace/my-app' detected - images from internal registry are NOT migrated automatically
 INFO: To migrate internal registry images, use tools like skopeo. Example: skopeo sync --src docker --dest docker SOURCE_REGISTRY/REPO DEST_REGISTRY/REPO
 ```
@@ -65,6 +65,8 @@ This plugin is used automatically by crane when processing OpenShift resources. 
 - `--pvc-rename-map` - Map of PVC name changes
 
 ## Development
+
+For more information about developing crane plugins, see [crane-plugins](https://github.com/migtools/crane-plugins).
 
 ### Running Tests
 
