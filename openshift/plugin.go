@@ -89,6 +89,13 @@ func (o *OpenShiftTransformPlugin) Run(request transform.PluginRequest) (transfo
 	case "Build":
 		o.log().Info("found build, adding to whiteout")
 		whiteOut = true
+	case "ImageStream":
+		namespace := u.GetNamespace()
+		name := u.GetName()
+		o.log().Warnf("ImageStream '%s/%s' detected - images from internal registry are NOT migrated automatically", namespace, name)
+		o.log().Info("To migrate internal registry images, use tools like skopeo. Example: skopeo sync --src docker --dest docker SOURCE_REGISTRY/REPO DEST_REGISTRY/REPO")
+		o.log().Info("For more information, see: https://github.com/migtools/crane/issues/452")
+		whiteOut = true
 	case "ImageStreamTag":
 		o.log().Info("found ImageStreamTag sub-resource, adding to whiteout")
 		whiteOut = true
