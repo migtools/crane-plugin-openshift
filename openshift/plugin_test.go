@@ -173,6 +173,88 @@ func TestImageStreamWithEmptyNamespace(t *testing.T) {
 	}
 }
 
+func TestConfigMapFiltering(t *testing.T) {
+	tests := []struct {
+		name            string
+		configMapName   string
+		extras          map[string]string
+		expectWhiteOut  bool
+		description     string
+	}{
+		{
+			name:           "openshift-service-ca.crt should be filtered by default",
+			configMapName:  "openshift-service-ca.crt",
+			extras:         map[string]string{},
+			expectWhiteOut: true,
+			description:    "Default behavior strips openshift-service-ca.crt ConfigMap",
+		},
+		{
+			name:           "openshift-service-ca.crt with explicit strip-default-cabundle=true",
+			configMapName:  "openshift-service-ca.crt",
+			extras:         map[string]string{StripDefaultCABundleFlag: "true"},
+			expectWhiteOut: true,
+			description:    "Explicitly enabled flag strips the ConfigMap",
+		},
+		{
+			name:           "openshift-service-ca.crt with strip-default-cabundle=false",
+			configMapName:  "openshift-service-ca.crt",
+			extras:         map[string]string{StripDefaultCABundleFlag: "false"},
+			expectWhiteOut: false,
+			description:    "Disabled flag allows the ConfigMap through",
+		},
+		{
+			name:           "other ConfigMap should not be filtered",
+			configMapName:  "my-custom-config",
+			extras:         map[string]string{},
+			expectWhiteOut: false,
+			description:    "User ConfigMaps are not affected by the filter",
+		},
+		{
+			name:           "kube-root-ca.crt should not be filtered by this plugin",
+			configMapName:  "kube-root-ca.crt",
+			extras:         map[string]string{},
+			expectWhiteOut: false,
+			description:    "Kubernetes CA bundle is handled by KubernetesPlugin, not OpenShiftPlugin",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plugin := &OpenShiftTransformPlugin{
+				Log: logrus.New(),
+			}
+
+			resource := &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "v1",
+					"kind":       "ConfigMap",
+					"metadata": map[string]interface{}{
+						"name":      tt.configMapName,
+						"namespace": "test-namespace",
+					},
+					"data": map[string]interface{}{
+						"service-ca.crt": "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
+					},
+				},
+			}
+
+			request := transform.PluginRequest{
+				Unstructured: *resource,
+				Extras:       tt.extras,
+			}
+
+			response, err := plugin.Run(request)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if response.IsWhiteOut != tt.expectWhiteOut {
+				t.Errorf("%s: expected IsWhiteOut=%v, got %v", tt.description, tt.expectWhiteOut, response.IsWhiteOut)
+			}
+		})
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || findSubstring(s, substr))
 }
