@@ -18,7 +18,7 @@ func TestImageStreamDetection(t *testing.T) {
 		warningContains   string
 	}{
 		{
-			name: "ImageStream should be whitelisted and warn",
+			name: "ImageStream should be marked as whiteout and warn",
 			resource: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"apiVersion": "image.openshift.io/v1",
@@ -39,7 +39,7 @@ func TestImageStreamDetection(t *testing.T) {
 			warningContains: "my-namespace/my-app",
 		},
 		{
-			name: "ImageStreamTag should be whitelisted without ImageStream warning",
+			name: "ImageStreamTag should be marked as whiteout without ImageStream warning",
 			resource: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"apiVersion": "image.openshift.io/v1",
@@ -54,7 +54,7 @@ func TestImageStreamDetection(t *testing.T) {
 			expectWarning:   false,
 		},
 		{
-			name: "ImageTag should be whitelisted without ImageStream warning",
+			name: "ImageTag should be marked as whiteout without ImageStream warning",
 			resource: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"apiVersion": "image.openshift.io/v1",
@@ -69,7 +69,7 @@ func TestImageStreamDetection(t *testing.T) {
 			expectWarning:   false,
 		},
 		{
-			name: "Regular Pod should not be whitelisted",
+			name: "Regular Pod should not be marked as whiteout",
 			resource: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"apiVersion": "v1",
@@ -164,7 +164,7 @@ func TestImageStreamWithEmptyNamespace(t *testing.T) {
 	}
 
 	if !response.IsWhiteOut {
-		t.Error("expected ImageStream to be whitelisted")
+		t.Error("expected ImageStream to be marked as whiteout")
 	}
 
 	logOutput := logBuffer.String()
