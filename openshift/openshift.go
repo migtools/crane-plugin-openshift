@@ -40,6 +40,10 @@ const (
 	buildConfigSourceImagesPullSecret   = "/spec/source/images/%v/pullSecret"
 	buildConfigSourceImagesFrom         = "/spec/source/images/%v/from/name"
 	roleBindingSubject                  = "/subjects/%d/namespace"
+
+	// SCCNamespaceUIDMin is the minimum UID value for OpenShift SCC-injected namespace UID ranges.
+	// UIDs >= this value are considered SCC-injected and should be stripped during migration.
+	SCCNamespaceUIDMin int64 = 1000000000
 )
 
 var defaultPullSecrets = []string{"builder-dockercfg-", "default-dockercfg-", "deployer-dockercfg-"}
@@ -47,7 +51,7 @@ var defaultPullSecrets = []string{"builder-dockercfg-", "default-dockercfg-", "d
 func updateBuildConfigImageReference(
 	imgRef v1.ObjectReference,
 	imgPath string,
-	fields openshiftOptionalFields,
+	fields OpenshiftOptionalFields,
 ) (jsonpatch.Patch, error) {
 	patch := jsonpatch.Patch{}
 	var err error
@@ -67,7 +71,7 @@ func updateBuildConfigImageReference(
 	return patch, nil
 }
 
-func UpdateDefaultPullSecrets(u unstructured.Unstructured, fields openshiftOptionalFields) (jsonpatch.Patch, error) {
+func UpdateDefaultPullSecrets(u unstructured.Unstructured, fields OpenshiftOptionalFields) (jsonpatch.Patch, error) {
 	return updateSecretsForSlice(getPullSecrets(u), podReplaceImagePullSecret, podRemoveImagePullSecret, fields)
 }
 
@@ -75,7 +79,7 @@ func updateSecretsForSlice(
 	pullSecrets []v1.LocalObjectReference,
 	replaceOp string,
 	removeOp string,
-	fields openshiftOptionalFields) (jsonpatch.Patch, error) {
+	fields OpenshiftOptionalFields) (jsonpatch.Patch, error) {
 	var err error
 
 	replacePatch := jsonpatch.Patch{}
@@ -155,7 +159,7 @@ func UpdateRoleBinding(u unstructured.Unstructured) (jsonpatch.Patch, error) {
 func updateSecret(
 	pullSecret *v1.LocalObjectReference,
 	secretPath string,
-	fields openshiftOptionalFields) (jsonpatch.Patch, error) {
+	fields OpenshiftOptionalFields) (jsonpatch.Patch, error) {
 	var err error
 
 	patch := jsonpatch.Patch{}
@@ -271,7 +275,7 @@ func isDefault(name string) bool {
 	return false
 }
 
-func UpdateBuildConfig(u unstructured.Unstructured, fields openshiftOptionalFields) (jsonpatch.Patch, error) {
+func UpdateBuildConfig(u unstructured.Unstructured, fields OpenshiftOptionalFields) (jsonpatch.Patch, error) {
 	jsonPatch := jsonpatch.Patch{}
 	js, err := u.MarshalJSON()
 	if err != nil {
@@ -355,7 +359,7 @@ func UpdateBuildConfig(u unstructured.Unstructured, fields openshiftOptionalFiel
 	return jsonPatch, nil
 }
 
-func UpdateDeploymentConfig(u unstructured.Unstructured, fields openshiftOptionalFields) (jsonpatch.Patch, error) {
+func UpdateDeploymentConfig(u unstructured.Unstructured, fields OpenshiftOptionalFields) (jsonpatch.Patch, error) {
 	js, err := u.MarshalJSON()
 	if err != nil {
 		return nil, err
@@ -418,10 +422,34 @@ func getSecretReferencesServiceAccount(u unstructured.Unstructured) []v1.ObjectR
 	return sa.Secrets
 }
 
-// stripSecurityContext removes cluster-specific runtime security context values
-// that are injected by the SCC admission controller. This prevents SCC validation
-// failures when migrating between OpenShift clusters with different namespace UID ranges.
-func stripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) {
+// StripSecurityContext removes SCC-injected security context values while preserving
+// user-configured values. This prevents SCC validation failures when migrating between
+// OpenShift clusters with different namespace UID ranges.
+//
+// Only strips:
+//   - runAsUser when >= SCCNamespaceUIDMin (SCC-injected namespace UID range)
+//   - fsGroup when >= SCCNamespaceUIDMin (SCC-injected namespace UID range)
+//   - seLinuxOptions.level (always SCC-injected)
+//
+// Preserves all other security context values (capabilities, readOnlyRootFilesystem, etc.)
+//
+// Example:
+//
+//	Before:
+//	  securityContext:
+//	    runAsUser: 1000560000          # SCC-injected (>= SCCNamespaceUIDMin)
+//	    fsGroup: 1000560000            # SCC-injected
+//	    runAsNonRoot: true             # User-configured
+//	    seLinuxOptions:
+//	      level: s0:c26,c5             # SCC-injected
+//	      type: spc_t                  # User-configured
+//
+//	After:
+//	  securityContext:
+//	    runAsNonRoot: true             # Preserved
+//	    seLinuxOptions:
+//	      type: spc_t                  # Preserved
+func StripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) {
 	kind := u.GetKind()
 
 	// Only process workload resources
@@ -434,35 +462,7 @@ func stripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) 
 	// Create a copy to modify
 	modified := u.DeepCopy()
 
-	// Remove pod-level spec.securityContext
-	unstructured.RemoveNestedField(modified.Object, "spec", "securityContext")
-
-	// For workload controllers, remove spec.template.spec.securityContext
-	if kind != "Pod" {
-		if kind == "CronJob" {
-			// CronJob has spec.jobTemplate.spec.template.spec
-			unstructured.RemoveNestedField(modified.Object, "spec", "jobTemplate", "spec", "template", "spec", "securityContext")
-		} else {
-			// Deployment/StatefulSet/DaemonSet/Job/ReplicaSet/ReplicationController have spec.template.spec
-			unstructured.RemoveNestedField(modified.Object, "spec", "template", "spec", "securityContext")
-		}
-	}
-
-	// Helper function to strip container securityContext
-	stripContainerSecurityContext := func(containersPath ...string) {
-		containers, found, _ := unstructured.NestedSlice(modified.Object, containersPath...)
-		if found {
-			for i, c := range containers {
-				if container, ok := c.(map[string]interface{}); ok {
-					delete(container, "securityContext")
-					containers[i] = container
-				}
-			}
-			unstructured.SetNestedSlice(modified.Object, containers, containersPath...)
-		}
-	}
-
-	// Determine base path for containers
+	// Determine base path for pod spec
 	var basePath []string
 	if kind == "Pod" {
 		basePath = []string{"spec"}
@@ -472,30 +472,231 @@ func stripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) 
 		basePath = []string{"spec", "template", "spec"}
 	}
 
-	// Remove container-level securityContext
+	// Strip SCC-injected values from pod-level securityContext
+	stripPodSecurityContext := func(scPath ...string) error {
+		sc, found, _ := unstructured.NestedMap(modified.Object, scPath...)
+		if !found || sc == nil {
+			return nil
+		}
+
+		// Strip runAsUser if >= 1000000000
+		if runAsUser, ok := sc["runAsUser"].(int64); ok && runAsUser >= SCCNamespaceUIDMin {
+			delete(sc, "runAsUser")
+		}
+
+		// Strip fsGroup if >= 1000000000
+		if fsGroup, ok := sc["fsGroup"].(int64); ok && fsGroup >= SCCNamespaceUIDMin {
+			delete(sc, "fsGroup")
+		}
+
+		// Strip seLinuxOptions.level (always SCC-injected)
+		if seLinuxOpts, ok := sc["seLinuxOptions"].(map[string]interface{}); ok {
+			delete(seLinuxOpts, "level")
+			// If seLinuxOptions is now empty, remove it entirely
+			if len(seLinuxOpts) == 0 {
+				delete(sc, "seLinuxOptions")
+			} else {
+				sc["seLinuxOptions"] = seLinuxOpts
+			}
+		}
+
+		// If securityContext is now empty, remove it entirely
+		if len(sc) == 0 {
+			unstructured.RemoveNestedField(modified.Object, scPath...)
+		} else {
+			if err := unstructured.SetNestedMap(modified.Object, sc, scPath...); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Strip pod-level security context
+	podSecurityContextPath := append(basePath, "securityContext")
+	if err := stripPodSecurityContext(podSecurityContextPath...); err != nil {
+		return nil, err
+	}
+
+	// Helper function to strip container securityContext
+	stripContainerSecurityContext := func(containersPath ...string) error {
+		containers, found, _ := unstructured.NestedSlice(modified.Object, containersPath...)
+		if !found {
+			return nil
+		}
+
+		for i, c := range containers {
+			container, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			sc, ok := container["securityContext"].(map[string]interface{})
+			if !ok || sc == nil {
+				continue
+			}
+
+			// Strip runAsUser if >= 1000000000
+			if runAsUser, ok := sc["runAsUser"].(int64); ok && runAsUser >= SCCNamespaceUIDMin {
+				delete(sc, "runAsUser")
+			}
+
+			// Strip fsGroup if >= 1000000000
+			if fsGroup, ok := sc["fsGroup"].(int64); ok && fsGroup >= SCCNamespaceUIDMin {
+				delete(sc, "fsGroup")
+			}
+
+			// Strip seLinuxOptions.level (always SCC-injected)
+			if seLinuxOpts, ok := sc["seLinuxOptions"].(map[string]interface{}); ok {
+				delete(seLinuxOpts, "level")
+				// If seLinuxOptions is now empty, remove it entirely
+				if len(seLinuxOpts) == 0 {
+					delete(sc, "seLinuxOptions")
+				} else {
+					sc["seLinuxOptions"] = seLinuxOpts
+				}
+			}
+
+			// If securityContext is now empty, remove it entirely
+			if len(sc) == 0 {
+				delete(container, "securityContext")
+			} else {
+				container["securityContext"] = sc
+			}
+
+			containers[i] = container
+		}
+		if err := unstructured.SetNestedSlice(modified.Object, containers, containersPath...); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Strip container-level securityContext
 	containersPath := append(basePath, "containers")
-	stripContainerSecurityContext(containersPath...)
+	if err := stripContainerSecurityContext(containersPath...); err != nil {
+		return nil, err
+	}
 
-	// Remove initContainers securityContext
+	// Strip initContainers securityContext
 	initContainersPath := append(basePath, "initContainers")
-	stripContainerSecurityContext(initContainersPath...)
+	if err := stripContainerSecurityContext(initContainersPath...); err != nil {
+		return nil, err
+	}
 
-	// Remove ephemeralContainers securityContext (if present)
+	// Strip ephemeralContainers securityContext (if present)
 	ephemeralContainersPath := append(basePath, "ephemeralContainers")
-	stripContainerSecurityContext(ephemeralContainersPath...)
-
-	// Generate patch between original and modified
-	originalJSON, err := u.MarshalJSON()
-	if err != nil {
+	if err := stripContainerSecurityContext(ephemeralContainersPath...); err != nil {
 		return nil, err
 	}
 
-	modifiedJSON, err := modified.MarshalJSON()
-	if err != nil {
-		return nil, err
+	// Generate patch by comparing original and modified
+	// Build JSON patch operations for fields that were removed
+	var patchOps []string
+
+	// Helper to build path string
+	buildPath := func(parts ...string) string {
+		result := ""
+		for _, part := range parts {
+			if part != "" {
+				result += "/" + part
+			}
+		}
+		return result
 	}
 
-	patch, err := jsonpatch.CreatePatch(originalJSON, modifiedJSON)
+	// Check what changed in pod-level securityContext
+	origSC, _, _ := unstructured.NestedMap(u.Object, append(basePath, "securityContext")...)
+	modSC, _, _ := unstructured.NestedMap(modified.Object, append(basePath, "securityContext")...)
+
+	if origSC != nil && modSC != nil {
+		scPath := buildPath(basePath...) + "/securityContext"
+		// Check each field
+		if _, origHas := origSC["runAsUser"]; origHas {
+			if _, modHas := modSC["runAsUser"]; !modHas {
+				patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s/runAsUser"}`, scPath))
+			}
+		}
+		if _, origHas := origSC["fsGroup"]; origHas {
+			if _, modHas := modSC["fsGroup"]; !modHas {
+				patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s/fsGroup"}`, scPath))
+			}
+		}
+		if origOpts, ok := origSC["seLinuxOptions"].(map[string]interface{}); ok {
+			if modOpts, ok := modSC["seLinuxOptions"].(map[string]interface{}); ok {
+				if _, origHas := origOpts["level"]; origHas {
+					if _, modHas := modOpts["level"]; !modHas {
+						patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s/seLinuxOptions/level"}`, scPath))
+					}
+				}
+			} else if len(origOpts) > 0 {
+				// seLinuxOptions was removed entirely
+				if _, hasLevel := origOpts["level"]; hasLevel && len(origOpts) == 1 {
+					patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s/seLinuxOptions"}`, scPath))
+				}
+			}
+		}
+	} else if origSC != nil && modSC == nil {
+		// Entire securityContext was removed
+		patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s"}`, buildPath(basePath...)+"/securityContext"))
+	}
+
+	// Check container changes
+	checkContainerChanges := func(containerType string) {
+		origContainers, _, _ := unstructured.NestedSlice(u.Object, append(basePath, containerType)...)
+		modContainers, _, _ := unstructured.NestedSlice(modified.Object, append(basePath, containerType)...)
+
+		for i := 0; i < len(origContainers) && i < len(modContainers); i++ {
+			origC, ok1 := origContainers[i].(map[string]interface{})
+			modC, ok2 := modContainers[i].(map[string]interface{})
+			if !ok1 || !ok2 {
+				continue
+			}
+
+			origSC, _ := origC["securityContext"].(map[string]interface{})
+			modSC, ok2 := modC["securityContext"].(map[string]interface{})
+
+			containerPath := buildPath(basePath...) + "/" + containerType + "/" + fmt.Sprintf("%d", i) + "/securityContext"
+
+			if origSC != nil && modSC != nil {
+				if _, origHas := origSC["runAsUser"]; origHas {
+					if _, modHas := modSC["runAsUser"]; !modHas {
+						patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s/runAsUser"}`, containerPath))
+					}
+				}
+				if _, origHas := origSC["fsGroup"]; origHas {
+					if _, modHas := modSC["fsGroup"]; !modHas {
+						patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s/fsGroup"}`, containerPath))
+					}
+				}
+				if origOpts, ok := origSC["seLinuxOptions"].(map[string]interface{}); ok {
+					if modOpts, ok := modSC["seLinuxOptions"].(map[string]interface{}); ok {
+						if _, origHas := origOpts["level"]; origHas {
+							if _, modHas := modOpts["level"]; !modHas {
+								patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s/seLinuxOptions/level"}`, containerPath))
+							}
+						}
+					} else if len(origOpts) > 0 {
+						if _, hasLevel := origOpts["level"]; hasLevel && len(origOpts) == 1 {
+							patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s/seLinuxOptions"}`, containerPath))
+						}
+					}
+				}
+			} else if origSC != nil && !ok2 {
+				patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s"}`, containerPath))
+			}
+		}
+	}
+
+	checkContainerChanges("containers")
+	checkContainerChanges("initContainers")
+	checkContainerChanges("ephemeralContainers")
+
+	if len(patchOps) == 0 {
+		return jsonpatch.Patch{}, nil
+	}
+
+	patchJSON := "[" + strings.Join(patchOps, ",") + "]"
+	patch, err := jsonpatch.DecodePatch([]byte(patchJSON))
 	if err != nil {
 		return nil, err
 	}
