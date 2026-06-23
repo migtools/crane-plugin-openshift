@@ -1020,7 +1020,9 @@ func TestStripSecurityContext(t *testing.T) {
 					// Verify user-configured fields are preserved (positive assertions)
 					// Check that fields which existed in the original and are not SCC-injected are still present
 					verifyPreservedFields := func(origSpec, modSpec map[string]interface{}, pathPrefix string) {
-						// Helper to check if a security context field is preserved
+						// Helper to check if a security context field is preserved.
+						// modSC can be empty map (when entire securityContext is missing) - this triggers
+						// proper validation errors for removed user-configured fields.
 						checkPreserved := func(origSC, modSC map[string]interface{}, field, path string) {
 							if origVal, hasOrig := origSC[field]; hasOrig {
 								modVal, hasMod := modSC[field]
