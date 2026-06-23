@@ -422,6 +422,21 @@ func getSecretReferencesServiceAccount(u unstructured.Unstructured) []v1.ObjectR
 	return sa.Secrets
 }
 
+// sccUID safely extracts a UID value from an interface{}, handling both int64 and float64
+// types. JSON unmarshaling of unstructured.Unstructured produces float64 for numeric values,
+// so this helper ensures we can check SCC UID ranges regardless of the source type.
+// Returns the int64 value and true if successful, or 0 and false if the type is neither.
+func sccUID(v interface{}) (int64, bool) {
+	switch val := v.(type) {
+	case int64:
+		return val, true
+	case float64:
+		return int64(val), true
+	default:
+		return 0, false
+	}
+}
+
 // StripSecurityContext removes SCC-injected security context values while preserving
 // user-configured values. This prevents SCC validation failures when migrating between
 // OpenShift clusters with different namespace UID ranges.
@@ -480,12 +495,12 @@ func StripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) 
 		}
 
 		// Strip runAsUser if >= 1000000000
-		if runAsUser, ok := sc["runAsUser"].(int64); ok && runAsUser >= SCCNamespaceUIDMin {
+		if runAsUser, ok := sccUID(sc["runAsUser"]); ok && runAsUser >= SCCNamespaceUIDMin {
 			delete(sc, "runAsUser")
 		}
 
 		// Strip fsGroup if >= 1000000000
-		if fsGroup, ok := sc["fsGroup"].(int64); ok && fsGroup >= SCCNamespaceUIDMin {
+		if fsGroup, ok := sccUID(sc["fsGroup"]); ok && fsGroup >= SCCNamespaceUIDMin {
 			delete(sc, "fsGroup")
 		}
 
@@ -536,12 +551,12 @@ func StripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) 
 			}
 
 			// Strip runAsUser if >= 1000000000
-			if runAsUser, ok := sc["runAsUser"].(int64); ok && runAsUser >= SCCNamespaceUIDMin {
+			if runAsUser, ok := sccUID(sc["runAsUser"]); ok && runAsUser >= SCCNamespaceUIDMin {
 				delete(sc, "runAsUser")
 			}
 
 			// Strip fsGroup if >= 1000000000
-			if fsGroup, ok := sc["fsGroup"].(int64); ok && fsGroup >= SCCNamespaceUIDMin {
+			if fsGroup, ok := sccUID(sc["fsGroup"]); ok && fsGroup >= SCCNamespaceUIDMin {
 				delete(sc, "fsGroup")
 			}
 
