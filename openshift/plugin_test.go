@@ -840,7 +840,6 @@ func TestStripSecurityContext(t *testing.T) {
 								"image": "debug:latest",
 								"securityContext": map[string]interface{}{
 									"runAsUser": int64(1000560000), // SCC-injected
-									"fsGroup":   int64(1000560000), // SCC-injected
 									"seLinuxOptions": map[string]interface{}{
 										"level": "s0:c26,c5", // SCC-injected
 										"type":  "spc_t",     // user-configured
@@ -924,7 +923,7 @@ func TestStripSecurityContext(t *testing.T) {
 				}
 
 				// Verify SCC-injected values were removed
-				verifySecurityContext := func(sc interface{}, path string) {
+				verifySecurityContext := func(sc interface{}, path string, isPodLevel bool) {
 					if sc == nil {
 						return
 					}
@@ -940,10 +939,12 @@ func TestStripSecurityContext(t *testing.T) {
 						}
 					}
 
-					// Check fsGroup
-					if fsGroup, ok := scMap["fsGroup"].(float64); ok {
-						if int64(fsGroup) >= SCCNamespaceUIDMin {
-							t.Errorf("%s at %s: SCC-injected fsGroup %d should have been stripped", tt.description, path, int64(fsGroup))
+					// Check fsGroup (only valid at pod level)
+					if isPodLevel {
+						if fsGroup, ok := scMap["fsGroup"].(float64); ok {
+							if int64(fsGroup) >= SCCNamespaceUIDMin {
+								t.Errorf("%s at %s: SCC-injected fsGroup %d should have been stripped", tt.description, path, int64(fsGroup))
+							}
 						}
 					}
 
@@ -984,7 +985,7 @@ func TestStripSecurityContext(t *testing.T) {
 				if spec != nil {
 					// Verify pod-level security context
 					if podSC, ok := spec["securityContext"]; ok {
-						verifySecurityContext(podSC, "spec.securityContext")
+						verifySecurityContext(podSC, "spec.securityContext", true)
 					}
 
 					// Verify container security contexts
@@ -992,7 +993,7 @@ func TestStripSecurityContext(t *testing.T) {
 						for i, c := range containers {
 							container, _ := c.(map[string]interface{})
 							if containerSC, ok := container["securityContext"]; ok {
-								verifySecurityContext(containerSC, fmt.Sprintf("spec.containers[%d].securityContext", i))
+								verifySecurityContext(containerSC, fmt.Sprintf("spec.containers[%d].securityContext", i), false)
 							}
 						}
 					}
@@ -1002,7 +1003,7 @@ func TestStripSecurityContext(t *testing.T) {
 						for i, c := range initContainers {
 							container, _ := c.(map[string]interface{})
 							if containerSC, ok := container["securityContext"]; ok {
-								verifySecurityContext(containerSC, fmt.Sprintf("spec.initContainers[%d].securityContext", i))
+								verifySecurityContext(containerSC, fmt.Sprintf("spec.initContainers[%d].securityContext", i), false)
 							}
 						}
 					}
@@ -1012,7 +1013,7 @@ func TestStripSecurityContext(t *testing.T) {
 						for i, c := range ephemeralContainers {
 							container, _ := c.(map[string]interface{})
 							if containerSC, ok := container["securityContext"]; ok {
-								verifySecurityContext(containerSC, fmt.Sprintf("spec.ephemeralContainers[%d].securityContext", i))
+								verifySecurityContext(containerSC, fmt.Sprintf("spec.ephemeralContainers[%d].securityContext", i), false)
 							}
 						}
 					}

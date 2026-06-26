@@ -438,32 +438,14 @@ func sccUID(v interface{}) (int64, bool) {
 }
 
 // StripSecurityContext removes SCC-injected security context values while preserving
-// user-configured values. This prevents SCC validation failures when migrating between
-// OpenShift clusters with different namespace UID ranges.
+// user-configured values.
 //
 // Only strips:
 //   - runAsUser when >= SCCNamespaceUIDMin (SCC-injected namespace UID range)
 //   - fsGroup when >= SCCNamespaceUIDMin (SCC-injected namespace UID range)
 //   - seLinuxOptions.level (always SCC-injected)
 //
-// Preserves all other security context values (capabilities, readOnlyRootFilesystem, etc.)
-//
-// Example:
-//
-//	Before:
-//	  securityContext:
-//	    runAsUser: 1000560000          # SCC-injected (>= SCCNamespaceUIDMin)
-//	    fsGroup: 1000560000            # SCC-injected
-//	    runAsNonRoot: true             # User-configured
-//	    seLinuxOptions:
-//	      level: s0:c26,c5             # SCC-injected
-//	      type: spc_t                  # User-configured
-//
-//	After:
-//	  securityContext:
-//	    runAsNonRoot: true             # Preserved
-//	    seLinuxOptions:
-//	      type: spc_t                  # Preserved
+// Preserves all other security context values (capabilities, readOnlyRootFilesystem, etc.) 
 func StripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) {
 	kind := u.GetKind()
 
@@ -553,11 +535,6 @@ func StripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) 
 			// Strip runAsUser if >= 1000000000
 			if runAsUser, ok := sccUID(sc["runAsUser"]); ok && runAsUser >= SCCNamespaceUIDMin {
 				delete(sc, "runAsUser")
-			}
-
-			// Strip fsGroup if >= 1000000000
-			if fsGroup, ok := sccUID(sc["fsGroup"]); ok && fsGroup >= SCCNamespaceUIDMin {
-				delete(sc, "fsGroup")
 			}
 
 			// Strip seLinuxOptions.level (always SCC-injected)
@@ -676,11 +653,6 @@ func StripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) 
 				if _, origHas := origSC["runAsUser"]; origHas {
 					if _, modHas := modSC["runAsUser"]; !modHas {
 						patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s/runAsUser"}`, containerPath))
-					}
-				}
-				if _, origHas := origSC["fsGroup"]; origHas {
-					if _, modHas := modSC["fsGroup"]; !modHas {
-						patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"%s/fsGroup"}`, containerPath))
 					}
 				}
 				if origOpts, ok := origSC["seLinuxOptions"].(map[string]interface{}); ok {
