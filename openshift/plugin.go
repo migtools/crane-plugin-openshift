@@ -72,7 +72,7 @@ func (o *OpenShiftTransformPlugin) Run(request transform.PluginRequest) (transfo
 	u := request.Unstructured
 	var patch jsonpatch.Patch
 	whiteOut := false
-	inputFields, err := parseOptionalFields(request.Extras)
+	inputFields, err := ParseOptionalFields(request.Extras)
 	if err != nil {
 		return transform.PluginResponse{}, err
 	}
@@ -110,7 +110,18 @@ func (o *OpenShiftTransformPlugin) Run(request transform.PluginRequest) (transfo
 		patch, err = UpdateDeploymentConfig(u, inputFields)
 	case "Pod":
 		o.log().Info("found pod, processing update default pull secret")
-		patch, err = UpdateDefaultPullSecrets(u, inputFields)
+		pullSecretPatch, err := UpdateDefaultPullSecrets(u, inputFields)
+		if err != nil {
+			break
+		}
+		securityContextPatch, err := StripSecurityContext(u)
+		if err != nil {
+			break
+		}
+		patch = append(pullSecretPatch, securityContextPatch...)
+	case "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet", "ReplicationController":
+		o.log().Infof("found %s, stripping SCC-injected security context", u.GetKind())
+		patch, err = StripSecurityContext(u)
 	case "Route":
 		o.log().Info("found route, processing")
 		patch, err = UpdateRoute(u)
@@ -165,7 +176,8 @@ func (o *OpenShiftTransformPlugin) log() logrus.FieldLogger {
 	return logrus.New()
 }
 
-type openshiftOptionalFields struct {
+// OpenshiftOptionalFields contains the optional configuration fields for OpenShift transformations
+type OpenshiftOptionalFields struct {
 	StripDefaultRBAC        bool
 	StripDefaultCABundle    bool
 	StripDefaultPullSecrets bool
@@ -174,8 +186,9 @@ type openshiftOptionalFields struct {
 	RegistryReplacement     map[string]string
 }
 
-func parseOptionalFields(extras map[string]string) (openshiftOptionalFields, error) {
-	fields := openshiftOptionalFields{
+// ParseOptionalFields parses the extras map into OpenshiftOptionalFields
+func ParseOptionalFields(extras map[string]string) (OpenshiftOptionalFields, error) {
+	fields := OpenshiftOptionalFields{
 		StripDefaultRBAC:        true,
 		StripDefaultCABundle:    true,
 		StripDefaultPullSecrets: true,
