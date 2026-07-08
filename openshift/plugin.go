@@ -109,7 +109,7 @@ func (o *OpenShiftTransformPlugin) Run(request transform.PluginRequest) (transfo
 		o.log().Info("found deployment config, processing")
 		patch, err = UpdateDeploymentConfig(u, inputFields)
 	case "Pod":
-		o.log().Info("found pod, processing update default pull secret")
+		o.log().Info("found pod, processing")
 		pullSecretPatch, err := UpdateDefaultPullSecrets(u, inputFields)
 		if err != nil {
 			break
@@ -118,7 +118,12 @@ func (o *OpenShiftTransformPlugin) Run(request transform.PluginRequest) (transfo
 		if err != nil {
 			break
 		}
+		runtimePatch, err := StripPodRuntimeAnnotations(u)
+		if err != nil {
+			break
+		}
 		patch = append(pullSecretPatch, securityContextPatch...)
+		patch = append(patch, runtimePatch...)
 	case "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet", "ReplicationController":
 		o.log().Infof("found %s, stripping SCC-injected security context", u.GetKind())
 		patch, err = StripSecurityContext(u)
