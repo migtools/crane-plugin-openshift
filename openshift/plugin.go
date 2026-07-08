@@ -110,15 +110,16 @@ func (o *OpenShiftTransformPlugin) Run(request transform.PluginRequest) (transfo
 		patch, err = UpdateDeploymentConfig(u, inputFields)
 	case "Pod":
 		o.log().Info("found pod, processing")
-		pullSecretPatch, err := UpdateDefaultPullSecrets(u, inputFields)
+		var pullSecretPatch, securityContextPatch, runtimePatch jsonpatch.Patch
+		pullSecretPatch, err = UpdateDefaultPullSecrets(u, inputFields)
 		if err != nil {
 			break
 		}
-		securityContextPatch, err := StripSecurityContext(u)
+		securityContextPatch, err = StripSecurityContext(u)
 		if err != nil {
 			break
 		}
-		runtimePatch, err := StripPodRuntimeAnnotations(u)
+		runtimePatch, err = StripPodRuntimeAnnotations(u)
 		if err != nil {
 			break
 		}
