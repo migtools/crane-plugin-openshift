@@ -87,20 +87,28 @@ func StripPodRuntimeAnnotations(u unstructured.Unstructured) (jsonpatch.Patch, e
 		"k8s.v1.cni.cncf.io/networks-status",
 	}
 
-	var patchOps []string
+	type patchOp struct {
+		Op   string `json:"op"`
+		Path string `json:"path"`
+	}
+
+	var ops []patchOp
 	for _, ann := range runtimeAnnotations {
 		if _, exists := annotations[ann]; exists {
 			escaped := strings.ReplaceAll(ann, "/", "~1")
-			patchOps = append(patchOps, fmt.Sprintf(`{"op":"remove","path":"/metadata/annotations/%s"}`, escaped))
+			ops = append(ops, patchOp{Op: "remove", Path: "/metadata/annotations/" + escaped})
 		}
 	}
 
-	if len(patchOps) == 0 {
+	if len(ops) == 0 {
 		return nil, nil
 	}
 
-	patchJSON := "[" + strings.Join(patchOps, ",") + "]"
-	return jsonpatch.DecodePatch([]byte(patchJSON))
+	patchJSON, err := json.Marshal(ops)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling runtime annotation patch: %w", err)
+	}
+	return jsonpatch.DecodePatch(patchJSON)
 }
 
 func UpdateDefaultPullSecrets(u unstructured.Unstructured, fields OpenshiftOptionalFields) (jsonpatch.Patch, error) {
