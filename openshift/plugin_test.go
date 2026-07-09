@@ -1171,3 +1171,115 @@ func TestStripSecurityContext(t *testing.T) {
 		})
 	}
 }
+
+func TestStripPodRuntimeAnnotations(t *testing.T) {
+	tests := []struct {
+		name                string
+		annotations         map[string]interface{}
+		expectPatchCount    int
+		expectStripped      []string
+		expectPreserved     []string
+	}{
+		{
+			name: "strips OVN annotations",
+			annotations: map[string]interface{}{
+				"k8s.ovn.org/pod-networks":             `{"default":{"ip_addresses":["10.129.2.65/23"]}}`,
+				"k8s.v1.cni.cncf.io/network-status":    `[{"ips":["10.129.2.65"]}]`,
+				"k8s.v1.cni.cncf.io/networks-status":   `[{"ips":["10.129.2.65"]}]`,
+				"app.kubernetes.io/name":                "myapp",
+			},
+			expectPatchCount: 3,
+			expectStripped:   []string{"k8s.ovn.org/pod-networks", "k8s.v1.cni.cncf.io/network-status", "k8s.v1.cni.cncf.io/networks-status"},
+			expectPreserved:  []string{"app.kubernetes.io/name"},
+		},
+		{
+			name: "no OVN annotations present",
+			annotations: map[string]interface{}{
+				"app.kubernetes.io/name": "myapp",
+				"openshift.io/scc":      "restricted-v2",
+			},
+			expectPatchCount: 0,
+		},
+		{
+			name:             "no annotations at all",
+			annotations:      nil,
+			expectPatchCount: 0,
+		},
+		{
+			name: "only some OVN annotations present",
+			annotations: map[string]interface{}{
+				"k8s.ovn.org/pod-networks": `{"default":{}}`,
+				"app":                      "test",
+			},
+			expectPatchCount: 1,
+			expectStripped:   []string{"k8s.ovn.org/pod-networks"},
+			expectPreserved:  []string{"app"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metadata := map[string]interface{}{
+				"name":      "test-pod",
+				"namespace": "test-ns",
+			}
+			if tt.annotations != nil {
+				metadata["annotations"] = tt.annotations
+			}
+
+			u := unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "v1",
+					"kind":       "Pod",
+					"metadata":   metadata,
+					"spec": map[string]interface{}{
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":  "test",
+								"image": "busybox",
+							},
+						},
+					},
+				},
+			}
+
+			patch, err := StripPodRuntimeAnnotations(u)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if tt.expectPatchCount == 0 {
+				if patch != nil && len(patch) > 0 {
+					t.Errorf("expected no patches, got %d", len(patch))
+				}
+				return
+			}
+
+			if len(patch) != tt.expectPatchCount {
+				t.Errorf("expected %d patches, got %d", tt.expectPatchCount, len(patch))
+			}
+
+			// Apply the patch and verify
+			original, _ := json.Marshal(u.Object)
+			patched, err := patch.Apply(original)
+			if err != nil {
+				t.Fatalf("failed to apply patch: %v", err)
+			}
+
+			var result map[string]interface{}
+			json.Unmarshal(patched, &result)
+			resultAnnotations, _ := result["metadata"].(map[string]interface{})["annotations"].(map[string]interface{})
+
+			for _, key := range tt.expectStripped {
+				if _, exists := resultAnnotations[key]; exists {
+					t.Errorf("expected annotation %q to be stripped, but it's still present", key)
+				}
+			}
+			for _, key := range tt.expectPreserved {
+				if _, exists := resultAnnotations[key]; !exists {
+					t.Errorf("expected annotation %q to be preserved, but it's missing", key)
+				}
+			}
+		})
+	}
+}

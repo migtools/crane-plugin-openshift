@@ -71,6 +71,46 @@ func updateBuildConfigImageReference(
 	return patch, nil
 }
 
+// StripPodRuntimeAnnotations removes OCP/OVN runtime-injected annotations
+// from standalone Pods. These annotations carry source-cluster-specific state
+// (IP addresses, SCC assignment, SELinux levels) that is invalid on the target.
+// Deployments/StatefulSets don't need this because they create fresh Pods.
+func StripPodRuntimeAnnotations(u unstructured.Unstructured) (jsonpatch.Patch, error) {
+	annotations := u.GetAnnotations()
+	if len(annotations) == 0 {
+		return nil, nil
+	}
+
+	runtimeAnnotations := []string{
+		"k8s.ovn.org/pod-networks",
+		"k8s.v1.cni.cncf.io/network-status",
+		"k8s.v1.cni.cncf.io/networks-status",
+	}
+
+	type patchOp struct {
+		Op   string `json:"op"`
+		Path string `json:"path"`
+	}
+
+	var ops []patchOp
+	for _, ann := range runtimeAnnotations {
+		if _, exists := annotations[ann]; exists {
+			escaped := strings.ReplaceAll(ann, "/", "~1")
+			ops = append(ops, patchOp{Op: "remove", Path: "/metadata/annotations/" + escaped})
+		}
+	}
+
+	if len(ops) == 0 {
+		return nil, nil
+	}
+
+	patchJSON, err := json.Marshal(ops)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling runtime annotation patch: %w", err)
+	}
+	return jsonpatch.DecodePatch(patchJSON)
+}
+
 func UpdateDefaultPullSecrets(u unstructured.Unstructured, fields OpenshiftOptionalFields) (jsonpatch.Patch, error) {
 	return updateSecretsForSlice(getPullSecrets(u), podReplaceImagePullSecret, podRemoveImagePullSecret, fields)
 }
