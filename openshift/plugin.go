@@ -7,17 +7,19 @@ import (
 	"github.com/konveyor/crane-lib/transform"
 	"github.com/konveyor/crane-lib/transform/util"
 	"github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 const PluginVersion = "v0.1.0"
 
 const (
-	StripDefaultRBACFlag        = "strip-default-rbac"
-	StripDefaultCABundleFlag    = "strip-default-cabundle"
-	StripDefaultPullSecretsFlag = "strip-default-pull-secrets"
-	PullSecretReplacementFlag   = "pull-secret-replacement"
-	PVCRenameMapFlag            = "pvc-rename-map"
-	RegistryReplacementFlag     = "registry-replacement"
+	StripDefaultRBACFlag         = "strip-default-rbac"
+	StripDefaultCABundleFlag     = "strip-default-cabundle"
+	StripDefaultPullSecretsFlag  = "strip-default-pull-secrets"
+	PullSecretReplacementFlag    = "pull-secret-replacement"
+	PVCRenameMapFlag             = "pvc-rename-map"
+	RegistryReplacementFlag      = "registry-replacement"
+	ConvertDeploymentConfigsFlag = "convert-deploymentconfigs"
 )
 
 var authorizationGroup = "authorization.openshift.io"
@@ -62,6 +64,11 @@ func (o *OpenShiftTransformPlugin) Metadata() transform.PluginMetadata {
 				Help:     "A comma-separated list of colon separated pvc renames.",
 				Example:  "old-pvc1-name:new-pvc1-name,old-pvc2-name:new-pvc2-name",
 			},
+			{
+				FlagName: ConvertDeploymentConfigsFlag,
+				Help:     "Whether to convert apps.openshift.io/v1 DeploymentConfigs to apps/v1 Deployments (default: false)",
+				Example:  "true",
+			},
 		},
 		RequestVersion:  []transform.Version{transform.V1},
 		ResponseVersion: []transform.Version{transform.V1},
@@ -71,6 +78,7 @@ func (o *OpenShiftTransformPlugin) Metadata() transform.PluginMetadata {
 func (o *OpenShiftTransformPlugin) Run(request transform.PluginRequest) (transform.PluginResponse, error) {
 	u := request.Unstructured
 	var patch jsonpatch.Patch
+	var newResources []unstructured.Unstructured
 	whiteOut := false
 	inputFields, err := ParseOptionalFields(request.Extras)
 	if err != nil {
@@ -107,7 +115,32 @@ func (o *OpenShiftTransformPlugin) Run(request transform.PluginRequest) (transfo
 		patch, err = UpdateBuildConfig(u, inputFields)
 	case "DeploymentConfig":
 		o.log().Info("found deployment config, processing")
-		patch, err = UpdateDeploymentConfig(u, inputFields)
+		if inputFields.ConvertDeploymentConfigs && isDeploymentConfig(u) {
+			var deployment *unstructured.Unstructured
+			var warnings []string
+			var skipReason string
+			deployment, warnings, skipReason, err = ConvertDeploymentConfig(u, inputFields)
+			if err != nil {
+				break
+			}
+			if skipReason != "" {
+				o.log().Warnf("skipping DeploymentConfig conversion for %s/%s: %s", u.GetNamespace(), u.GetName(), skipReason)
+				patch, err = UpdateDeploymentConfig(u, inputFields)
+				if err == nil {
+					var statusPatch jsonpatch.Patch
+					statusPatch, err = DeploymentConfigConversionStatusPatch(u, skipReason)
+					patch = append(patch, statusPatch...)
+				}
+			} else {
+				for _, warning := range warnings {
+					o.log().Warnf("DeploymentConfig conversion for %s/%s: %s", u.GetNamespace(), u.GetName(), warning)
+				}
+				whiteOut = true
+				newResources = append(newResources, *deployment)
+			}
+		} else {
+			patch, err = UpdateDeploymentConfig(u, inputFields)
+		}
 	case "Pod":
 		o.log().Info("found pod, processing")
 		var pullSecretPatch, securityContextPatch, runtimePatch jsonpatch.Patch
@@ -169,9 +202,10 @@ func (o *OpenShiftTransformPlugin) Run(request transform.PluginRequest) (transfo
 		return transform.PluginResponse{}, err
 	}
 	return transform.PluginResponse{
-		Version:    string(transform.V1),
-		IsWhiteOut: whiteOut,
-		Patches:    patch,
+		Version:      string(transform.V1),
+		IsWhiteOut:   whiteOut,
+		Patches:      patch,
+		NewResources: newResources,
 	}, nil
 }
 
@@ -184,12 +218,13 @@ func (o *OpenShiftTransformPlugin) log() logrus.FieldLogger {
 
 // OpenshiftOptionalFields contains the optional configuration fields for OpenShift transformations
 type OpenshiftOptionalFields struct {
-	StripDefaultRBAC        bool
-	StripDefaultCABundle    bool
-	StripDefaultPullSecrets bool
-	PullSecretReplacement   map[string]string
-	PVCRenameMap            map[string]string
-	RegistryReplacement     map[string]string
+	StripDefaultRBAC         bool
+	StripDefaultCABundle     bool
+	StripDefaultPullSecrets  bool
+	PullSecretReplacement    map[string]string
+	PVCRenameMap             map[string]string
+	RegistryReplacement      map[string]string
+	ConvertDeploymentConfigs bool
 }
 
 // ParseOptionalFields parses the extras map into OpenshiftOptionalFields
@@ -214,6 +249,12 @@ func ParseOptionalFields(extras map[string]string) (OpenshiftOptionalFields, err
 	}
 	if len(extras[StripDefaultPullSecretsFlag]) > 0 {
 		fields.StripDefaultPullSecrets, err = strconv.ParseBool(extras[StripDefaultPullSecretsFlag])
+		if err != nil {
+			return fields, err
+		}
+	}
+	if len(extras[ConvertDeploymentConfigsFlag]) > 0 {
+		fields.ConvertDeploymentConfigs, err = strconv.ParseBool(extras[ConvertDeploymentConfigsFlag])
 		if err != nil {
 			return fields, err
 		}

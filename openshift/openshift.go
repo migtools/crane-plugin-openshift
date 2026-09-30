@@ -405,7 +405,12 @@ func UpdateDeploymentConfig(u unstructured.Unstructured, fields OpenshiftOptiona
 		return nil, err
 	}
 	deploymentConfig := &appsv1.DeploymentConfig{}
-	err = json.Unmarshal(js, deploymentConfig)
+	if err = json.Unmarshal(js, deploymentConfig); err != nil {
+		return nil, err
+	}
+	if deploymentConfig.Spec.Template == nil {
+		return jsonpatch.Patch{}, nil
+	}
 
 	patches, err := util.RenamePVCs(deploymentConfig.Spec.Template.Spec.Volumes, fields.PVCRenameMap, util.PVCPathGenericString)
 	if err != nil {
@@ -485,7 +490,7 @@ func sccUID(v interface{}) (int64, bool) {
 //   - fsGroup when >= SCCNamespaceUIDMin (SCC-injected namespace UID range)
 //   - seLinuxOptions.level (always SCC-injected)
 //
-// Preserves all other security context values (capabilities, readOnlyRootFilesystem, etc.) 
+// Preserves all other security context values (capabilities, readOnlyRootFilesystem, etc.)
 func StripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) {
 	kind := u.GetKind()
 
