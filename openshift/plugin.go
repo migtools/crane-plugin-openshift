@@ -66,8 +66,8 @@ func (o *OpenShiftTransformPlugin) Metadata() transform.PluginMetadata {
 			},
 			{
 				FlagName: ConvertDeploymentConfigsFlag,
-				Help:     "Whether to convert apps.openshift.io/v1 DeploymentConfigs to apps/v1 Deployments (default: false)",
-				Example:  "true",
+				Help:     "Whether to convert compatible apps.openshift.io/v1 DeploymentConfigs to apps/v1 Deployments (default: true)",
+				Example:  "false",
 			},
 		},
 		RequestVersion:  []transform.Version{transform.V1},
@@ -230,9 +230,10 @@ type OpenshiftOptionalFields struct {
 // ParseOptionalFields parses the extras map into OpenshiftOptionalFields
 func ParseOptionalFields(extras map[string]string) (OpenshiftOptionalFields, error) {
 	fields := OpenshiftOptionalFields{
-		StripDefaultRBAC:        true,
-		StripDefaultCABundle:    true,
-		StripDefaultPullSecrets: true,
+		StripDefaultRBAC:         true,
+		StripDefaultCABundle:     true,
+		StripDefaultPullSecrets:  true,
+		ConvertDeploymentConfigs: true,
 	}
 	var err error
 	if len(extras[StripDefaultRBACFlag]) > 0 {

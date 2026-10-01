@@ -63,11 +63,11 @@ This plugin is used automatically by crane when processing OpenShift resources. 
 - `--pull-secret-replacement` - Map of pull secret replacements
 - `--registry-replacement` - Map of registry path replacements
 - `--pvc-rename-map` - Map of PVC name changes
-- `--convert-deploymentconfigs` (default: false) - Convert `apps.openshift.io/v1` DeploymentConfigs to `apps/v1` Deployments
+- `--convert-deploymentconfigs` (default: true) - Convert compatible `apps.openshift.io/v1` DeploymentConfigs to `apps/v1` Deployments
 
 ## DeploymentConfig conversion
 
-DeploymentConfig conversion is disabled by default so that existing OpenShift-to-OpenShift migrations keep their current behavior. Enable it with `convert-deploymentconfigs=true` when the target should use Kubernetes Deployments.
+DeploymentConfig conversion is enabled by default. Compatible resources are converted to Kubernetes Deployments, while unsupported resources remain DeploymentConfigs with an annotation explaining why conversion was skipped. Set `convert-deploymentconfigs=false` to disable conversion, for example for an OpenShift-to-OpenShift migration that must preserve DeploymentConfigs.
 
 The conversion requires Crane `v0.11.0-alpha.1` or newer. Older Crane versions honor the source whiteout but ignore the generated resource, which can remove a DeploymentConfig without creating its replacement.
 

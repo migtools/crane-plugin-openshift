@@ -10,17 +10,34 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-func TestDeploymentConfigConversionDisabledByDefault(t *testing.T) {
+func TestDeploymentConfigConversionEnabledByDefault(t *testing.T) {
 	plugin := &OpenShiftTransformPlugin{}
 	response, err := plugin.Run(transform.PluginRequest{Unstructured: deploymentConfigFixture()})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if !response.IsWhiteOut {
+		t.Fatal("compatible DeploymentConfig must be converted by default")
+	}
+	if len(response.NewResources) != 1 {
+		t.Fatalf("expected one generated resource, got %d", len(response.NewResources))
+	}
+}
+
+func TestDeploymentConfigConversionCanBeDisabled(t *testing.T) {
+	plugin := &OpenShiftTransformPlugin{}
+	response, err := plugin.Run(transform.PluginRequest{
+		Unstructured: deploymentConfigFixture(),
+		Extras:       map[string]string{ConvertDeploymentConfigsFlag: "false"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if response.IsWhiteOut {
-		t.Fatal("conversion must be disabled by default")
+		t.Fatal("disabled conversion must not whiteout the DeploymentConfig")
 	}
 	if len(response.NewResources) != 0 {
-		t.Fatalf("expected no generated resources, got %d", len(response.NewResources))
+		t.Fatalf("disabled conversion generated %d resources", len(response.NewResources))
 	}
 }
 
