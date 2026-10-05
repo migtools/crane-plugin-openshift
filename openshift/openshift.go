@@ -131,9 +131,16 @@ func updateSecretsForSlice(
 	// later elements up, which would break later remove patch entries otherwise
 	var priorReplace, priorRemove bool
 	for i := len(pullSecrets) - 1; i >= 0; i-- {
-		newSecret, ok := fields.PullSecretReplacement[pullSecrets[i].Name]
-		// replacement found
-		if ok {
+		newSecret, keep := transformPullSecretName(pullSecrets[i].Name, fields)
+		if !keep {
+			removeJSON = fmt.Sprintf(
+				removeOp,
+				removeJSON,
+				nonInitialDelimiter(priorRemove),
+				i,
+			)
+			priorRemove = true
+		} else if newSecret != pullSecrets[i].Name {
 			replaceJSON = fmt.Sprintf(
 				replaceOp,
 				replaceJSON,
@@ -142,14 +149,6 @@ func updateSecretsForSlice(
 				newSecret,
 			)
 			priorReplace = true
-		} else if fields.StripDefaultPullSecrets && isDefault(pullSecrets[i].Name) {
-			removeJSON = fmt.Sprintf(
-				removeOp,
-				removeJSON,
-				nonInitialDelimiter(priorRemove),
-				i,
-			)
-			priorRemove = true
 		}
 	}
 	replaceJSON = fmt.Sprintf("%v]", replaceJSON)
@@ -168,6 +167,17 @@ func updateSecretsForSlice(
 		}
 	}
 	return append(replacePatch, removePatch...), nil
+}
+
+// transformPullSecretName applies the shared replacement-before-removal policy.
+func transformPullSecretName(name string, fields OpenshiftOptionalFields) (string, bool) {
+	if replacement, ok := fields.PullSecretReplacement[name]; ok {
+		return replacement, true
+	}
+	if fields.StripDefaultPullSecrets && isDefault(name) {
+		return "", false
+	}
+	return name, true
 }
 
 func UpdateRoleBinding(u unstructured.Unstructured) (jsonpatch.Patch, error) {
@@ -405,7 +415,12 @@ func UpdateDeploymentConfig(u unstructured.Unstructured, fields OpenshiftOptiona
 		return nil, err
 	}
 	deploymentConfig := &appsv1.DeploymentConfig{}
-	err = json.Unmarshal(js, deploymentConfig)
+	if err = json.Unmarshal(js, deploymentConfig); err != nil {
+		return nil, err
+	}
+	if deploymentConfig.Spec.Template == nil {
+		return jsonpatch.Patch{}, nil
+	}
 
 	patches, err := util.RenamePVCs(deploymentConfig.Spec.Template.Spec.Volumes, fields.PVCRenameMap, util.PVCPathGenericString)
 	if err != nil {
@@ -485,7 +500,7 @@ func sccUID(v interface{}) (int64, bool) {
 //   - fsGroup when >= SCCNamespaceUIDMin (SCC-injected namespace UID range)
 //   - seLinuxOptions.level (always SCC-injected)
 //
-// Preserves all other security context values (capabilities, readOnlyRootFilesystem, etc.) 
+// Preserves all other security context values (capabilities, readOnlyRootFilesystem, etc.)
 func StripSecurityContext(u unstructured.Unstructured) (jsonpatch.Patch, error) {
 	kind := u.GetKind()
 

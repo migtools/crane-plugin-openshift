@@ -7,7 +7,7 @@ OpenShift plugin for [crane](https://github.com/konveyor/crane) - handles OpenSh
 This plugin provides transformations for OpenShift-specific resources including:
 
 - **BuildConfigs**: Updates pull secrets and registry references
-- **DeploymentConfigs**: Handles PVC renames and pod template transformations
+- **DeploymentConfigs**: Handles PVC renames and can optionally convert them to Kubernetes Deployments
 - **Routes**: Removes auto-generated hostnames
 - **ServiceAccounts**: Strips default secrets and pull secrets
 - **RoleBindings**: Removes namespace references for ServiceAccount subjects
@@ -63,6 +63,58 @@ This plugin is used automatically by crane when processing OpenShift resources. 
 - `--pull-secret-replacement` - Map of pull secret replacements
 - `--registry-replacement` - Map of registry path replacements
 - `--pvc-rename-map` - Map of PVC name changes
+- `--convert-deploymentconfigs` (default: true) - Convert compatible `apps.openshift.io/v1` DeploymentConfigs to `apps/v1` Deployments
+
+## DeploymentConfig conversion
+
+DeploymentConfig conversion is enabled by default. Compatible resources are converted to Kubernetes Deployments, while unsupported resources remain DeploymentConfigs with an annotation explaining why conversion was skipped. Set `convert-deploymentconfigs=false` to disable conversion, for example for an OpenShift-to-OpenShift migration that must preserve DeploymentConfigs.
+
+The conversion requires Crane `v0.11.0-alpha.1` or newer. Older Crane versions honor the source whiteout but ignore the generated resource, which can remove a DeploymentConfig without creating its replacement.
+
+On successful conversion, the plugin:
+
+- whiteouts the source DeploymentConfig;
+- returns one `apps/v1` Deployment through `NewResources`;
+- applies `pvc-rename-map` to PVC references;
+- removes or replaces default pull secrets in the pod template;
+- removes SCC-injected security context values;
+- records dropped behavior in logs and in the `crane.konveyor.io/deploymentconfig-conversion-warnings` annotation.
+
+If conversion is unsafe, the plugin keeps the DeploymentConfig and adds these annotations:
+
+- `crane.konveyor.io/deploymentconfig-conversion-status: skipped`
+- `crane.konveyor.io/deploymentconfig-conversion-reason: <reason>`
+
+### Field support
+
+| DeploymentConfig field or behavior | Conversion |
+|---|---|
+| Name, namespace, labels, annotations | Preserved |
+| Replicas, including zero | Preserved |
+| Selector | Converted to `spec.selector.matchLabels` |
+| Pod template | Preserved |
+| Pod template `imagePullSecrets` | Default OpenShift secrets are removed or replaced according to the pull-secret options |
+| `minReadySeconds`, `revisionHistoryLimit`, `paused` | Preserved |
+| Rolling strategy | Converted to `RollingUpdate` |
+| `maxSurge`, `maxUnavailable` | Preserved |
+| Recreate strategy | Preserved |
+| ConfigChange trigger | Removed; Deployment rolls out when its pod template changes |
+| ImageChange trigger | Removed with a warning |
+| Rolling period, polling interval, and timeout | Removed with a warning |
+| Recreate timeout | Removed with a warning |
+| Deployer resources, labels, annotations, active deadline | Removed with a warning |
+| Custom strategy or `customParams` | Conversion skipped |
+| Pre, mid, or post lifecycle hooks | Conversion skipped |
+| `spec.test: true` | Conversion skipped |
+| Missing pod template or invalid selector | Conversion skipped |
+
+A DeploymentConfig without a ConfigChange trigger has manual rollout semantics. A Deployment rolls out automatically when its pod template changes, so the plugin records this difference as a warning.
+
+ImageChange triggers are not portable Kubernetes behavior. OpenShift can provide similar behavior through the `image.openshift.io/triggers` annotation, but this plugin does not generate that annotation because it has no effect on a non-OpenShift target.
+
+Run the Kubernetes plugin before the OpenShift plugin. Generated Deployments are not sent back through an earlier pipeline stage, so the OpenShift plugin performs the required metadata and security-context cleanup itself.
+
+The source DeploymentConfig and an existing Deployment can have the same namespace and name because their GVKs differ. The generated Deployment would collide with that existing Deployment. Crane must reject this case as tracked in [migtools/crane#1035](https://github.com/migtools/crane/issues/1035).
 
 ## Development
 
