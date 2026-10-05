@@ -46,12 +46,12 @@ func (o *OpenShiftTransformPlugin) Metadata() transform.PluginMetadata {
 			},
 			{
 				FlagName: StripDefaultPullSecretsFlag,
-				Help:     "Whether to strip Pod and BuildConfig default pull secrets (beginning with builder/default/deployer-dockercfg-) that aren't replaced by the map param " + PullSecretReplacementFlag + " (default: true)",
+				Help:     "Whether to strip Pod, converted DeploymentConfig, and BuildConfig default pull secrets (beginning with builder/default/deployer-dockercfg-) that aren't replaced by the map param " + PullSecretReplacementFlag + " (default: true)",
 				Example:  "true",
 			},
 			{
 				FlagName: PullSecretReplacementFlag,
-				Help:     "Map of pull secrets to replace in Pods and BuildConfigs while transforming in format secret1=destsecret1,secret2=destsecret2[...]",
+				Help:     "Map of pull secrets to replace in Pods, converted DeploymentConfigs, and BuildConfigs while transforming in format secret1=destsecret1,secret2=destsecret2[...]",
 				Example:  "default-dockercfg-h4n7g=default-dockercfg-12345,builder-dockercfg-abcde=builder-dockercfg-12345",
 			},
 			{

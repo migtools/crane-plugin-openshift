@@ -265,6 +265,73 @@ func TestDeploymentConfigStrategyConversion(t *testing.T) {
 	}
 }
 
+func TestDeploymentConfigImagePullSecrets(t *testing.T) {
+	tests := []struct {
+		name     string
+		secrets  []interface{}
+		extras   map[string]string
+		expected []string
+	}{
+		{
+			name:     "removes default pull secret",
+			secrets:  []interface{}{map[string]interface{}{"name": "default-dockercfg-abcde"}},
+			expected: []string{},
+		},
+		{
+			name:    "replaces default pull secret",
+			secrets: []interface{}{map[string]interface{}{"name": "default-dockercfg-abcde"}},
+			extras: map[string]string{
+				PullSecretReplacementFlag: "default-dockercfg-abcde=target-registry-secret",
+			},
+			expected: []string{"target-registry-secret"},
+		},
+		{
+			name:     "preserves user pull secret",
+			secrets:  []interface{}{map[string]interface{}{"name": "user-registry-secret"}},
+			expected: []string{"user-registry-secret"},
+		},
+		{
+			name:    "preserves default pull secret when stripping is disabled",
+			secrets: []interface{}{map[string]interface{}{"name": "builder-dockercfg-abcde"}},
+			extras: map[string]string{
+				StripDefaultPullSecretsFlag: "false",
+			},
+			expected: []string{"builder-dockercfg-abcde"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resource := deploymentConfigFixture()
+			templateSpec := resource.Object["spec"].(map[string]interface{})["template"].(map[string]interface{})["spec"].(map[string]interface{})
+			templateSpec["imagePullSecrets"] = tt.secrets
+
+			response, err := (&OpenShiftTransformPlugin{}).Run(transform.PluginRequest{
+				Unstructured: resource,
+				Extras:       tt.extras,
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !response.IsWhiteOut || len(response.NewResources) != 1 {
+				t.Fatal("expected successful conversion")
+			}
+
+			items, found, err := unstructured.NestedSlice(response.NewResources[0].Object, "spec", "template", "spec", "imagePullSecrets")
+			if err != nil || !found {
+				t.Fatalf("read imagePullSecrets: found=%v err=%v", found, err)
+			}
+			actual := make([]string, 0, len(items))
+			for _, item := range items {
+				actual = append(actual, item.(map[string]interface{})["name"].(string))
+			}
+			if !reflect.DeepEqual(actual, tt.expected) {
+				t.Fatalf("imagePullSecrets = %v, expected %v", actual, tt.expected)
+			}
+		})
+	}
+}
+
 func TestDeploymentConfigConversionIsDeterministicAndRepeatable(t *testing.T) {
 	plugin := &OpenShiftTransformPlugin{}
 	request := transform.PluginRequest{

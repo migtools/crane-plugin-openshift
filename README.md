@@ -76,6 +76,7 @@ On successful conversion, the plugin:
 - whiteouts the source DeploymentConfig;
 - returns one `apps/v1` Deployment through `NewResources`;
 - applies `pvc-rename-map` to PVC references;
+- removes or replaces default pull secrets in the pod template;
 - removes SCC-injected security context values;
 - records dropped behavior in logs and in the `crane.konveyor.io/deploymentconfig-conversion-warnings` annotation.
 
@@ -92,6 +93,7 @@ If conversion is unsafe, the plugin keeps the DeploymentConfig and adds these an
 | Replicas, including zero | Preserved |
 | Selector | Converted to `spec.selector.matchLabels` |
 | Pod template | Preserved |
+| Pod template `imagePullSecrets` | Default OpenShift secrets are removed or replaced according to the pull-secret options |
 | `minReadySeconds`, `revisionHistoryLimit`, `paused` | Preserved |
 | Rolling strategy | Converted to `RollingUpdate` |
 | `maxSurge`, `maxUnavailable` | Preserved |

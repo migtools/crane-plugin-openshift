@@ -64,6 +64,9 @@ func ConvertDeploymentConfig(u unstructured.Unstructured, fields OpenshiftOption
 		return nil, nil, "spec.template is required", nil
 	}
 	removeServerManagedMetadata(template, "metadata")
+	if err := sanitizePodTemplateImagePullSecrets(template, fields); err != nil {
+		return nil, nil, "", err
+	}
 	volumes, found, err := unstructured.NestedSlice(template, "spec", "volumes")
 	if err != nil {
 		return nil, nil, "", err
@@ -168,6 +171,30 @@ func ConvertDeploymentConfig(u unstructured.Unstructured, fields OpenshiftOption
 	}
 
 	return converted, warnings, "", nil
+}
+
+func sanitizePodTemplateImagePullSecrets(template map[string]interface{}, fields OpenshiftOptionalFields) error {
+	pullSecrets, found, err := unstructured.NestedSlice(template, "spec", "imagePullSecrets")
+	if err != nil || !found {
+		return err
+	}
+
+	sanitized := make([]interface{}, 0, len(pullSecrets))
+	for _, item := range pullSecrets {
+		pullSecret, ok := item.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("spec.template.spec.imagePullSecrets contains an invalid entry")
+		}
+		name, _ := pullSecret["name"].(string)
+		newName, keep := transformPullSecretName(name, fields)
+		if !keep {
+			continue
+		}
+		pullSecret["name"] = newName
+		sanitized = append(sanitized, pullSecret)
+	}
+
+	return unstructured.SetNestedSlice(template, sanitized, "spec", "imagePullSecrets")
 }
 
 func unsupportedDeploymentConfigBehavior(deploymentConfig *appsv1.DeploymentConfig) []string {
