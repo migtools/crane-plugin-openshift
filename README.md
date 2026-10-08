@@ -131,3 +131,13 @@ go test ./...
 ```bash
 go build -o crane-plugin-openshift .
 ```
+
+Locally built binaries report the version `devel`. The release workflow sets the
+published plugin version at link time and verifies it before publishing release
+artifacts. Add a release to `crane-plugins` only after that workflow succeeds.
+
+For example, to build a binary that reports `v0.11.1`:
+
+```bash
+go build -ldflags "-X github.com/migtools/crane-plugin-openshift/openshift.PluginVersion=v0.11.1" -o crane-plugin-openshift .
+```

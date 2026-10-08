@@ -10,7 +10,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-const PluginVersion = "v0.1.0"
+// PluginVersion is reported to crane in plugin metadata. Release builds set it
+// with -ldflags; locally built binaries remain identifiable as development builds.
+var PluginVersion = "devel"
 
 const (
 	StripDefaultRBACFlag         = "strip-default-rbac"
