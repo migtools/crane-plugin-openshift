@@ -1,82 +1,113 @@
-name: Releases
+name: Release
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Bump Version
-        default: v0.1.0
+        description: "Version to release, for example v0.11.1"
         required: true
+
+permissions:
+  contents: write
+
 jobs:
-  build:
+  release:
+    name: Build and publish plugin binaries
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.25.0"
+      - name: Check the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! printf '%s' "$VERSION" | grep -Eq '^v0\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.]*)?$'; then
+            echo "version must be v0.MINOR.PATCH with an optional pre-release suffix, got '$VERSION'"
+            exit 1
+          fi
 
       - name: Check out source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
 
-      - name: Tidy
-        env:
-          GOPROXY: "https://proxy.golang.org"
-        run: go mod tidy && git diff --quiet HEAD
-
-      - name: Ensure artifact directory exists
-        run: mkdir -p bin
-
-      - name: Build openshift plugin linux amd64
-        env:
-          GOPROXY: "https://proxy.golang.org"
-        run: GOOS=linux GOARCH=amd64 go build -o bin/amd64-linux-openshiftplugin-${{ github.event.inputs.version }} .
-
-      - name: Build openshift plugin darwin amd64
-        env:
-          GOPROXY: "https://proxy.golang.org"
-        run: GOOS=darwin GOARCH=amd64 go build -o bin/amd64-darwin-openshiftplugin-${{ github.event.inputs.version }} .
-
-      - name: Build openshift plugin darwin arm64
-        env:
-          GOPROXY: "https://proxy.golang.org"
-        run: GOOS=darwin GOARCH=arm64 go build -o bin/arm64-darwin-openshiftplugin-${{ github.event.inputs.version }} .
-
-      - name: release
-        uses: ncipollo/release-action@v1
+      - name: Set up Go
+        uses: actions/setup-go@v6
         with:
-          artifacts: "bin/*"
-          allowUpdates: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ github.event.inputs.version }}
+          go-version-file: go.mod
 
-      - name: Checkout crane-plugins
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/crane-plugins
-          token: ${{ secrets.PLUGIN_RELEASE }}
-          path: crane-plugins
-
-      - name: setup python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Updating index file and adding manifest
-        shell: bash
+      - name: Refuse to reuse a tag
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          pip install pyyaml
-          cd crane-plugins
-          python $GITHUB_WORKSPACE/.github/workflows/script.py "${{ github.event.inputs.version }}" "${{ github.repository_owner }}" "${{ github.repository }}"
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null || git ls-remote --exit-code --refs origin "refs/tags/$VERSION" >/dev/null; then
+            echo "tag $VERSION already exists. Pick a new version."
+            exit 1
+          fi
 
-      - name: Create Pull Request against crane-plugins
-        uses: peter-evans/create-pull-request@v6
+      - name: Verify go.mod is tidy
+        env:
+          GOPROXY: "https://proxy.golang.org"
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Run unit tests
+        env:
+          GOPROXY: "https://proxy.golang.org"
+        run: go test ./... -count=1
+
+      - name: Build and verify plugin binaries
+        env:
+          GOPROXY: "https://proxy.golang.org"
+          VERSION: ${{ inputs.version }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p bin
+          ldflags="-X github.com/migtools/crane-plugin-openshift/openshift.PluginVersion=${VERSION}"
+
+          while read -r os arch; do
+            out="bin/${arch}-${os}-openshiftplugin-${VERSION}"
+            if [ "$os" = "windows" ]; then
+              out="${out}.exe"
+            fi
+            echo "building $out"
+            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$ldflags" -o "$out" .
+
+            # A stale -X package path leaves the development version in the binary.
+            if ! strings "$out" | grep -Fq "$VERSION"; then
+              echo "$out does not carry $VERSION. Check the -X path against openshift.PluginVersion."
+              exit 1
+            fi
+          done <<'PLATFORMS'
+          linux amd64
+          linux arm64
+          darwin amd64
+          darwin arm64
+          windows amd64
+          PLATFORMS
+
+          metadata=$(printf '{}' | "bin/amd64-linux-openshiftplugin-${VERSION}")
+          if ! printf '%s' "$metadata" | jq -e --arg version "$VERSION" '.version == $version' >/dev/null; then
+            echo "linux amd64 plugin metadata does not report $VERSION: $metadata"
+            exit 1
+          fi
+
+      - name: Write checksums
+        run: |
+          cd bin
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
         with:
-          token: ${{ secrets.PLUGIN_RELEASE }}
-          commit-message: Updating index and adding manifest from openshift plugin release
-          title: Adding openshift plugin from release ${{ github.event.inputs.version }}
-          body: Update index and add manifest to include version ${{ github.event.inputs.version }} of openshift plugin
-          branch: OpenShiftPlugin
-          base: main
-          path: crane-plugins
+          tag_name: ${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ inputs.version }}
+          fail_on_unmatched_files: true
+          files: |
+            bin/*
+          body: |
+            Plugin binaries for crane plugin-manager.
+
+            Add this version to the crane plugin index only after this release completes successfully.

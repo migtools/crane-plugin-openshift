@@ -11,6 +11,17 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+func TestMetadataVersion(t *testing.T) {
+	metadata := (&OpenShiftTransformPlugin{}).Metadata()
+
+	if metadata.Version != PluginVersion {
+		t.Errorf("metadata version = %q, want %q", metadata.Version, PluginVersion)
+	}
+	if PluginVersion != "devel" {
+		t.Errorf("default plugin version = %q, want %q", PluginVersion, "devel")
+	}
+}
+
 func TestImageStreamDetection(t *testing.T) {
 	tests := []struct {
 		name              string
